@@ -1,13 +1,23 @@
 import AppKit
+import SwiftUI
 import KeyboardShortcuts
 
+// 面板显示时发出的通知，供面板内容据此聚焦输入框
+extension Notification.Name {
+    static let panelDidShow = Notification.Name("LightTrans.panelDidShow")
+}
+
 // 应用总管：状态栏图标、浮动面板、设置与历史窗口、全局快捷键监听的总入口
-// T2 阶段实现状态栏图标与右键菜单；面板、设置、历史窗口从 T5 起按详细设计逐步实现
+// T5 阶段实现浮动面板与全局快捷键；设置、历史窗口从 T7 起按详细设计逐步实现
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
+    private var panel: FloatingPanel!
+    private var shortcutTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
+        setupPanel()
+        startShortcutListener()
     }
 
     // 创建状态栏图标：左键呼出面板，右键弹出菜单
@@ -46,9 +56,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                    in: button)
     }
 
-    // 呼出/隐藏翻译面板（T5 实现具体逻辑）
+    // 创建浮动面板（内容暂为 A-1 验证用的临时输入视图，T6 替换为 TranslatePanelView）
+    private func setupPanel() {
+        panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 220))
+        panel.contentView = NSHostingView(rootView: PanelProbeView())
+    }
+
+    // 启动 Option+T 全局快捷键监听（详细设计 3.2，铁律 L-3）
+    private func startShortcutListener() {
+        shortcutTask = Task { @MainActor in
+            for await _ in KeyboardShortcuts.events(.keyDown, for: .togglePanel) {
+                togglePanel()
+            }
+        }
+    }
+
+    // 呼出/隐藏翻译面板：已显示则隐藏，否则定位后显示并聚焦输入框
     func togglePanel() {
-        // 后续任务填充
+        if panel.isVisible {
+            panel.orderOut(nil)
+        } else {
+            positionPanel()
+            panel.makeKeyAndOrderFront(nil)
+            // 通知面板内容聚焦输入框
+            NotificationCenter.default.post(name: .panelDidShow, object: nil)
+        }
+    }
+
+    // 定位到当前含鼠标的屏幕：水平居中、顶部向下 22%（详细设计 3.2）
+    private func positionPanel() {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
+            ?? NSScreen.main
+            ?? NSScreen.screens[0]
+        let visible = screen.visibleFrame
+        let size = panel.frame.size
+        let originX = visible.midX - size.width / 2
+        let originY = visible.maxY - visible.height * 0.22 - size.height
+        panel.setFrameOrigin(NSPoint(x: originX, y: originY))
     }
 
     @objc private func openSettings() {
@@ -67,4 +112,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension KeyboardShortcuts.Name {
     // 呼出翻译面板的全局快捷键，默认 Option+T（铁律 L-3）
     static let togglePanel = Self("togglePanel", default: .init(.t, modifiers: [.option]))
+}
+
+// T5 临时面板内容：用于验证假设 A-1（中文输入法含候选窗可正常输入）
+// T6 将整体替换为 TranslatePanelView
+private struct PanelProbeView: View {
+    @FocusState private var focused: Bool
+    @State private var text: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("A-1 验证：请用中文输入法输入（观察候选窗是否正常）")
+                .font(.callout)
+                .foregroundColor(.secondary)
+            TextEditor(text: $text)
+                .font(.system(size: 15))
+                .frame(height: 110)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.4)))
+                .focused($focused)
+            Text("字数：\(text.count)")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(20)
+        .frame(width: 560, height: 220)
+        .onAppear { focusInput() }
+        // 每次面板呼出都重新聚焦输入框
+        .onReceive(NotificationCenter.default.publisher(for: .panelDidShow)) { _ in
+            focusInput()
+        }
+    }
+
+    private func focusInput() {
+        DispatchQueue.main.async { focused = true }
+    }
 }
