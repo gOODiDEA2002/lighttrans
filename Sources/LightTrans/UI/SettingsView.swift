@@ -1,5 +1,6 @@
 import SwiftUI
 import KeyboardShortcuts
+import ServiceManagement
 
 // 设置窗口（详细设计第 5 节）。UserDefaults 项即改即存；仅 API Key 在失焦/关闭时写钥匙串。
 struct SettingsView: View {
@@ -8,6 +9,9 @@ struct SettingsView: View {
     @FocusState private var apiKeyFocused: Bool
     @State private var maxTokensText = ""
     @FocusState private var maxTokensFocused: Bool
+    @State private var launchAtLogin = LaunchAtLogin.isEnabled
+    @State private var launchError: String?
+    @State private var isRevertingLaunch = false
 
     private var templateMissingPlaceholder: Bool {
         !config.promptTemplate.contains("{{text}}")
@@ -47,7 +51,22 @@ struct SettingsView: View {
 
             Section("通用") {
                 KeyboardShortcuts.Recorder("呼出翻译面板：", name: .togglePanel)
-                // 开机自启开关由 T9 加入本组
+                Toggle("开机自启", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, newValue in
+                        // 程序化回弹触发的变更直接忽略，避免递归清掉刚显示的错误
+                        if isRevertingLaunch { isRevertingLaunch = false; return }
+                        do {
+                            try LaunchAtLogin.setEnabled(newValue)
+                            launchError = nil
+                        } catch {
+                            launchError = "设置开机自启失败：\(error.localizedDescription)"
+                            isRevertingLaunch = true
+                            launchAtLogin = LaunchAtLogin.isEnabled   // 回弹到系统实际状态
+                        }
+                    }
+                if let launchError {
+                    Text(launchError).font(.caption).foregroundColor(.red)
+                }
             }
 
             Section("历史记录") {
@@ -64,6 +83,12 @@ struct SettingsView: View {
         .onAppear {
             apiKey = config.loadAPIKey() ?? ""
             maxTokensText = String(config.maxTokens)
+            // 打开设置时与系统实际状态对齐；仅在值确有变化时设回弹守卫，避免吞掉后续用户操作
+            let actual = LaunchAtLogin.isEnabled
+            if actual != launchAtLogin {
+                isRevertingLaunch = true
+                launchAtLogin = actual
+            }
         }
         .onDisappear {
             saveAPIKey()
@@ -88,5 +113,21 @@ struct SettingsView: View {
         let clamped = min(8000, max(100, value))
         config.maxTokens = clamped
         maxTokensText = String(clamped)
+    }
+}
+
+// 开机自启：基于 SMAppService.mainApp（决策 D-7）。状态实时读系统，不落库。
+enum LaunchAtLogin {
+    static var isEnabled: Bool {
+        SMAppService.mainApp.status == .enabled
+    }
+
+    static func setEnabled(_ enabled: Bool) throws {
+        let service = SMAppService.mainApp
+        if enabled {
+            if service.status != .enabled { try service.register() }
+        } else {
+            if service.status == .enabled { try service.unregister() }
+        }
     }
 }
