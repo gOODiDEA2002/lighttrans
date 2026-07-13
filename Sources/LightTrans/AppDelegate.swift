@@ -9,9 +9,11 @@ extension Notification.Name {
 
 // 应用总管：状态栏图标、浮动面板、设置与历史窗口、全局快捷键监听的总入口
 // T5 阶段实现浮动面板与全局快捷键；设置、历史窗口从 T7 起按详细设计逐步实现
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var panel: FloatingPanel!
+    private var panelViewModel: PanelViewModel!
     private var shortcutTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -56,10 +58,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                    in: button)
     }
 
-    // 创建浮动面板（内容暂为 A-1 验证用的临时输入视图，T6 替换为 TranslatePanelView）
+    // 创建浮动面板与其内容视图
     private func setupPanel() {
-        panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 220))
-        panel.contentView = NSHostingView(rootView: PanelProbeView())
+        panelViewModel = PanelViewModel()
+        panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 440))
+        panel.contentView = NSHostingView(rootView: TranslatePanelView(viewModel: panelViewModel))
     }
 
     // 启动 Option+T 全局快捷键监听（详细设计 3.2，铁律 L-3）
@@ -112,38 +115,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension KeyboardShortcuts.Name {
     // 呼出翻译面板的全局快捷键，默认 Option+T（铁律 L-3）
     static let togglePanel = Self("togglePanel", default: .init(.t, modifiers: [.option]))
-}
-
-// T5 临时面板内容：用于验证假设 A-1（中文输入法含候选窗可正常输入）
-// T6 将整体替换为 TranslatePanelView
-private struct PanelProbeView: View {
-    @FocusState private var focused: Bool
-    @State private var text: String = ""
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("A-1 验证：请用中文输入法输入（观察候选窗是否正常）")
-                .font(.callout)
-                .foregroundColor(.secondary)
-            TextEditor(text: $text)
-                .font(.system(size: 15))
-                .frame(height: 110)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.4)))
-                .focused($focused)
-            Text("字数：\(text.count)")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .padding(20)
-        .frame(width: 560, height: 220)
-        .onAppear { focusInput() }
-        // 每次面板呼出都重新聚焦输入框
-        .onReceive(NotificationCenter.default.publisher(for: .panelDidShow)) { _ in
-            focusInput()
-        }
-    }
-
-    private func focusInput() {
-        DispatchQueue.main.async { focused = true }
-    }
 }

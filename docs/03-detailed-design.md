@@ -171,8 +171,10 @@ final class PanelViewModel: ObservableObject {
     // 1. 输入为空则忽略；正在翻译则先 cancel
     // 2. 清空 resultText，state = .translating
     // 3. currentTask = Task { for try await chunk in service.translate(...) { resultText += chunk } }
-    //    正常结束 state = .done；捕获 CancellationError 静默；
-    //    捕获 TranslationError 则 state = .failed(其中文文案)
+    //    循环正常结束后按 Task.isCancelled 区分：被取消(stopTranslate)则回到 .idle 并保留部分译文，
+    //    否则 state = .done；捕获 TranslationError 则 state = .failed(其中文文案)。
+    //    说明（T4/T6 实测订正）：经消费端 Task.cancel() 取消时，AsyncThrowingStream 的 for-await 循环
+    //    直接结束、不抛 CancellationError，故取消判定用 Task.isCancelled，不能依赖 catch CancellationError
     // 4. 无论完成、停止还是失败，结束时调用 HistoryStore.append 写入历史记录
     //    （historyEnabled 为 false 时跳过；写入失败只记日志，不打扰用户）
 
