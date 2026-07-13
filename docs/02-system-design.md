@@ -105,7 +105,7 @@ sequenceDiagram
 | --- | --- | --- |
 | L-1 | 运行环境为本机 macOS 15.7.4；最低部署目标定为 macOS 14 | `sw_vers` 实测，2026-07-13 |
 | L-2 | Info.plist 必须设 LSUIElement 为 true（应用不出现在 Dock）；由此设置窗口打开前必须先调用 NSApp.activate，否则窗口不获焦、无法输入 | Apple 平台惯例，LSUIElement 应用的已知行为 |
-| L-3 | KeyboardShortcuts 库接口：`KeyboardShortcuts.Name("id", initial: .init(.t, modifiers: [.option]))` 定义默认快捷键；`KeyboardShortcuts.events(for:)` 异步序列监听；`KeyboardShortcuts.Recorder` 为 SwiftUI 录制控件 | Context7 文档核验，2026-07-13 |
+| L-3 | KeyboardShortcuts 库接口：`KeyboardShortcuts.Name("id", default: .init(.t, modifiers: [.option]))` 定义默认快捷键；`KeyboardShortcuts.events(for:)` 异步序列监听；`KeyboardShortcuts.Recorder` 为 SwiftUI 录制控件 | Context7 文档核验，2026-07-13；参数标签经 T1 实测订正：`from: "2.0.0"` 解析到的发布版为 2.4.0，其初始化器为 `init(_:default:)`（Context7 展示的 `initial:` 为未发布版改名，尚未进入任何 2.x 发布版），故以 `default:` 为准 |
 | L-4 | OpenAI 兼容流式接口：请求体含 `stream: true`；响应为 SSE，译文片段位于每条 JSON 的 `choices[0].delta.content`；`data: [DONE]` 为结束标记 | OpenAI API 公开规范 |
 | L-5 | API Key 只能经 KeychainHelper 读写（kSecClassGenericPassword 类型），禁止出现在 UserDefaults、日志与任何源码文件中 | 需求 FR-7 |
 | L-6 | 提示词模板占位符固定为 `{{text}}`，替换采用纯字符串替换，不做任何模板语法解析 | 保持实现最简 |

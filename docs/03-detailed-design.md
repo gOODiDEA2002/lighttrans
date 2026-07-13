@@ -136,7 +136,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension KeyboardShortcuts.Name {
-    static let togglePanel = Self("togglePanel", initial: .init(.t, modifiers: [.option]))
+    // 参数标签为 default:（对齐 KeyboardShortcuts 2.4.0 的 init(_:default:)，详见系统设计铁律 L-3）
+    static let togglePanel = Self("togglePanel", default: .init(.t, modifiers: [.option]))
 }
 ```
 
