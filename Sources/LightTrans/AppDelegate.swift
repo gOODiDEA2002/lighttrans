@@ -5,15 +5,18 @@ import KeyboardShortcuts
 // 面板显示时发出的通知，供面板内容据此聚焦输入框
 extension Notification.Name {
     static let panelDidShow = Notification.Name("LightTrans.panelDidShow")
+    // 历史窗口打开时发出，触发历史记录重新加载
+    static let historyReload = Notification.Name("LightTrans.historyReload")
 }
 
 // 应用总管：状态栏图标、浮动面板、设置与历史窗口、全局快捷键监听的总入口
-// T5 阶段实现浮动面板与全局快捷键；设置、历史窗口从 T7 起按详细设计逐步实现
+// 已实现：状态栏、浮动面板与快捷键、历史窗口；设置窗口在 T8 实现
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var panel: FloatingPanel!
     private var panelViewModel: PanelViewModel!
+    private var historyWindow: NSWindow?
     private var shortcutTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -103,8 +106,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // T8 实现设置窗口
     }
 
+    // 打开历史窗口：LSUIElement 应用需先激活本应用，窗口方能获焦（铁律 L-2）
     @objc private func openHistory() {
-        // T7 实现历史窗口
+        if historyWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 680, height: 480),
+                styleMask: [.titled, .closable, .resizable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "历史记录"
+            window.contentView = NSHostingView(rootView: HistoryWindowView())
+            window.center()
+            window.isReleasedWhenClosed = false
+            historyWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        historyWindow?.makeKeyAndOrderFront(nil)
+        // 每次打开都刷新一次数据
+        NotificationCenter.default.post(name: .historyReload, object: nil)
     }
 
     @objc private func quit() {
