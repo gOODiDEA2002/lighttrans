@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var panel: FloatingPanel!
     private var panelViewModel: PanelViewModel!
+    private var settingsWindow: NSWindow?
     private var historyWindow: NSWindow?
     private var shortcutTask: Task<Void, Never>?
 
@@ -102,8 +103,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.setFrameOrigin(NSPoint(x: originX, y: originY))
     }
 
+    // 打开设置窗口：LSUIElement 应用需先激活本应用，窗口方能获焦可输入（铁律 L-2）
     @objc private func openSettings() {
-        // T8 实现设置窗口
+        if settingsWindow == nil {
+            let hosting = NSHostingController(rootView: SettingsView())
+            hosting.sizingOptions = [.preferredContentSize]   // 窗口按内容自适应尺寸
+            let window = NSWindow(contentViewController: hosting)
+            window.styleMask = [.titled, .closable, .miniaturizable]
+            window.title = "设置"
+            window.isReleasedWhenClosed = false
+            window.center()
+            settingsWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
     // 打开历史窗口：LSUIElement 应用需先激活本应用，窗口方能获焦（铁律 L-2）
