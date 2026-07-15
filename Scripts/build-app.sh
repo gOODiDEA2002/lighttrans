@@ -20,9 +20,26 @@ if [[ ! -f "${ICON_PATH}" ]]; then
     exit 1
 fi
 
+# KeyboardShortcuts 2.4.0 含 SwiftUI #Preview。Xcode 26.3 的命令行构建不会自动
+# 搜索 macOS 平台插件目录，必须显式传入 PreviewsMacros 所在位置。
+if ! SDK_PLATFORM_PATH="$(xcrun --sdk macosx --show-sdk-platform-path 2>/dev/null)"; then
+    echo "错误：无法找到 macOS SDK，请安装完整 Xcode 并检查 xcode-select 配置" >&2
+    exit 1
+fi
+PREVIEW_PLUGIN_DIR="${SDK_PLATFORM_PATH}/Developer/usr/lib/swift/host/plugins"
+if [[ ! -f "${PREVIEW_PLUGIN_DIR}/libPreviewsMacros.dylib" ]]; then
+    echo "错误：找不到 PreviewsMacros，请安装完整 Xcode 并将 xcode-select 指向其 Developer 目录" >&2
+    exit 1
+fi
+SWIFT_BUILD_ARGS=(
+    -c release
+    -Xswiftc -plugin-path
+    -Xswiftc "${PREVIEW_PLUGIN_DIR}"
+)
+
 # 1. release 构建
 echo "==> swift build -c release"
-swift build -c release
+swift build "${SWIFT_BUILD_ARGS[@]}"
 BIN_PATH="$(swift build -c release --show-bin-path)"
 
 # 2. 组装 .app 目录结构（先清理旧产物）

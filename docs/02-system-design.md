@@ -112,6 +112,7 @@ sequenceDiagram
 | L-6 | 提示词模板占位符固定为 `{{text}}`，替换采用纯字符串替换，不做任何模板语法解析 | 保持实现最简 |
 | L-7 | 无付费开发者账号：禁止使用任何需要 iCloud 授权（entitlement）的能力（CloudKit、NSUbiquitousKeyValueStore、专属 iCloud 容器等），历史同步只允许走 iCloud 云盘文件夹的普通文件读写 | 需求文档第 2 节；苹果规定 iCloud 授权仅对付费开发者账号开放 |
 | L-8 | 历史文件单写者原则：每台设备只允许写入以本机设备标识命名的历史文件，永远只追加、不修改、不删除；禁止任何跨设备写同一文件的实现 | 决策 D-10，消除同步冲突的结构性保障 |
+| L-9 | Xcode 26.3 的 `PreviewsMacros` 位于 macOS 平台插件目录，`swift build` 不会自动搜索该位置；构建 `KeyboardShortcuts 2.4.0` 时必须通过 `-Xswiftc -plugin-path` 显式传入目录 | 2026-07-15 清理 `.build` 后实测；未传入时 `Recorder.swift` 中的 `#Preview` 编译失败，传入后干净构建通过 |
 
 ## 5. 待验证假设（编码时对应任务先行验证，验证前不得依赖）
 
