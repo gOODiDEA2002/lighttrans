@@ -1,7 +1,9 @@
 import Foundation
 import os
 
-// 一条历史记录（详细设计 10.3）。error 仅在 status 为 failed 时出现。
+// 一条历史记录（详细设计 10.3、11.4）。error 仅在 status 为 failed 时出现。
+// output 为 v1.0 单段译文，仅老记录存在；literalOutput/rewriteOutput 为 v1.1 双段译文。
+// nil 可选字段由 Codable 自动省略键，两种行都能被本结构解码。
 struct HistoryRecord: Codable, Identifiable {
     let id: String
     let time: String      // ISO 8601，含时区偏移
@@ -9,7 +11,9 @@ struct HistoryRecord: Codable, Identifiable {
     let model: String
     let status: String    // done / stopped / failed
     let input: String
-    let output: String
+    let output: String?          // v1.0 单段译文
+    let literalOutput: String?   // v1.1 直译
+    let rewriteOutput: String?   // v1.1 转写
     let error: String?
 }
 

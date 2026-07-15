@@ -9,7 +9,8 @@ final class ConfigStore: ObservableObject {
     private enum Key {
         static let apiBaseURL = "apiBaseURL"
         static let modelName = "modelName"
-        static let promptTemplate = "promptTemplate"
+        static let literalPromptTemplate = "literalPromptTemplate"   // 直译模板（增量 v1.1）
+        static let promptTemplate = "promptTemplate"                 // 转写模板（沿用原键名）
         static let maxTokens = "maxTokens"
         static let historyEnabled = "historyEnabled"
         static let deviceID = "deviceID"
@@ -22,9 +23,16 @@ final class ConfigStore: ObservableObject {
     // 默认接口地址
     static let defaultAPIBaseURL = "https://api.openai.com/v1"
 
-    // 默认提示词模板（详细设计 2.1）
-    static let defaultPromptTemplate = """
+    // 默认直译提示词模板（详细设计 11.1.1）
+    static let defaultLiteralPromptTemplate = """
     你是专业翻译。请翻译下面这段文字：如果原文以中文为主，翻译成英文；否则翻译成简体中文。只输出译文本身，不要任何解释或多余内容。
+
+    {{text}}
+    """
+
+    // 默认转写提示词模板（详细设计 11.1.2，新装机器初值；已自定义的用户保留原值）
+    static let defaultRewritePromptTemplate = """
+    你是提示词工程专家。请把下面这段文字改写成一段结构清晰、指令明确的英文提示词，可直接交给大模型使用。只输出改写后的提示词本身，不要任何解释。
 
     {{text}}
     """
@@ -34,6 +42,9 @@ final class ConfigStore: ObservableObject {
     // 各配置项：didSet 即改即写回 UserDefaults
     @Published var apiBaseURL: String { didSet { defaults.set(apiBaseURL, forKey: Key.apiBaseURL) } }
     @Published var modelName: String { didSet { defaults.set(modelName, forKey: Key.modelName) } }
+    // 直译模板（增量 v1.1）
+    @Published var literalPromptTemplate: String { didSet { defaults.set(literalPromptTemplate, forKey: Key.literalPromptTemplate) } }
+    // 转写模板（沿用原键名 promptTemplate）
     @Published var promptTemplate: String { didSet { defaults.set(promptTemplate, forKey: Key.promptTemplate) } }
     @Published var maxTokens: Int { didSet { defaults.set(maxTokens, forKey: Key.maxTokens) } }
     @Published var historyEnabled: Bool { didSet { defaults.set(historyEnabled, forKey: Key.historyEnabled) } }
@@ -44,14 +55,16 @@ final class ConfigStore: ObservableObject {
         defaults.register(defaults: [
             Key.apiBaseURL: Self.defaultAPIBaseURL,
             Key.modelName: "",
-            Key.promptTemplate: Self.defaultPromptTemplate,
+            Key.literalPromptTemplate: Self.defaultLiteralPromptTemplate,
+            Key.promptTemplate: Self.defaultRewritePromptTemplate,
             Key.maxTokens: 2000,
             Key.historyEnabled: true
         ])
         // 属性初始化不触发 didSet，不会把默认值写盘
         self.apiBaseURL = defaults.string(forKey: Key.apiBaseURL) ?? Self.defaultAPIBaseURL
         self.modelName = defaults.string(forKey: Key.modelName) ?? ""
-        self.promptTemplate = defaults.string(forKey: Key.promptTemplate) ?? Self.defaultPromptTemplate
+        self.literalPromptTemplate = defaults.string(forKey: Key.literalPromptTemplate) ?? Self.defaultLiteralPromptTemplate
+        self.promptTemplate = defaults.string(forKey: Key.promptTemplate) ?? Self.defaultRewritePromptTemplate
         self.maxTokens = defaults.integer(forKey: Key.maxTokens)
         self.historyEnabled = defaults.bool(forKey: Key.historyEnabled)
     }

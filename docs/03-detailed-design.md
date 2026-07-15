@@ -388,3 +388,98 @@ final class HistoryStore {
 
 - 多设备同步的前提：各电脑登录同一 Apple ID 且系统设置中开启 iCloud 云盘；同步时效由系统决定，通常数秒至数分钟。
 - 历史含翻译原文与译文，存于用户自己的 iCloud 空间，除 iCloud 本身外不经任何第三方。
+
+## 11. 增量 v1.1：双段翻译（直译 + 转写）
+
+对应系统设计决策 D-11。一次翻译从"一个提示词、一段结果"改为"两个提示词、两段结果"：第一段直译，第二段转写（提示词工程改写）。两路请求并行发出、各自流式显示。本节列出对第 2、4、6、10 节的全部改动，编码以本节为准；未提及处保持 v1.0 不变。
+
+### 11.1 配置项（对第 2 节的增补）
+
+新增一个提示词模板，原有 `promptTemplate` 语义收敛为"转写模板"。
+
+| 配置项 | 键名 | 存储 | 类型 | 默认值 |
+| --- | --- | --- | --- | --- |
+| 直译提示词模板 | literalPromptTemplate | UserDefaults | String | 见 11.1.1（即 v1.0 的默认直译模板） |
+| 转写提示词模板 | promptTemplate（沿用原键名） | UserDefaults | String | 见 11.1.2 |
+
+说明：沿用 `promptTemplate` 原键名，使已保存转写提示词的用户配置无缝保留；新增的 `literalPromptTemplate` 在老用户机器上从未写入，读到 register 默认值即直译模板。maxTokens、接口地址、模型名、API Key 两段共用，不新增。
+
+#### 11.1.1 直译默认模板
+
+```
+你是专业翻译。请翻译下面这段文字：如果原文以中文为主，翻译成英文；否则翻译成简体中文。只输出译文本身，不要任何解释或多余内容。
+
+{{text}}
+```
+
+#### 11.1.2 转写默认模板（新装机器的初值）
+
+```
+你是提示词工程专家。请把下面这段文字改写成一段结构清晰、指令明确的英文提示词，可直接交给大模型使用。只输出改写后的提示词本身，不要任何解释。
+
+{{text}}
+```
+
+### 11.2 TranslationService（对第 6 节的改动）
+
+入口签名增加模板参数，由调用方传入具体模板；其余流程（校验、渲染、请求、SSE 解析、取消、错误映射）不变。
+
+```swift
+func translate(text: String, template: String) -> AsyncThrowingStream<String, Error>
+```
+
+第 6.1 节第 2 步的"读 config.promptTemplate"改为使用传入的 `template`；`{{text}}` 替换与不含占位符时的兜底拼接规则不变（铁律 L-6）。
+
+### 11.3 PanelViewModel（对第 4.2 节的改动）
+
+由"单结果 + 单状态 + 单任务"改为"双结果 + 双状态 + 并行两任务 + 一个协调任务"。
+
+```swift
+enum PartState: Equatable { case idle, translating, done, stopped, failed(String) }
+
+@Published var inputText: String
+@Published var literalResult: String     // 直译结果
+@Published var rewriteResult: String     // 转写结果
+@Published var literalState: PartState
+@Published var rewriteState: PartState
+var isTranslating: Bool                   // 任一段处于 translating 即为 true
+
+func startTranslate()
+// 1. 输入为空忽略；进行中先取消
+// 2. generation += 1；清空两段结果，两段状态置 .translating
+// 3. 启动一个协调任务，内部用 async let 并行跑两段（直译用 literalPromptTemplate，转写用 promptTemplate）：
+//    每段各自消费 service.translate(text:template:) 的流，逐片段写入对应结果串；
+//    循环正常结束按 Task.isCancelled 区分 .stopped / .done；捕获 TranslationError 置 .failed(中文文案)。
+//    （取消判定沿用 4.2 的结论：for-await 被取消时直接结束、不抛 CancellationError）
+// 4. 两段都结束后，若 generation 未被新翻译顶替，写入一条历史记录（含两段译文，见 11.4）
+
+func stopTranslate()          // 取消协调任务，连带取消两段的底层网络
+func copy(_ text: String)     // 复制指定文本到剪贴板（直译、转写各自调用）
+```
+
+聚合状态（写历史用）：任一段 failed 记 `failed`（error 为各失败段文案的合并），否则任一段 stopped 记 `stopped`，否则 `done`。历史开关关闭时不写。写入失败仍只记日志，不打扰用户（同 10.4）。
+
+### 11.4 历史记录格式（对第 10.3 节的改动，向后兼容）
+
+`HistoryRecord` 扩展为可同时承载单段（老记录）与双段（新记录）：`output` 改为可选并保留以兼容 v1.0 老记录；新增可选的 `literalOutput`、`rewriteOutput`。
+
+```swift
+struct HistoryRecord: Codable, Identifiable {
+    let id, time, device, model, status, input: String
+    let output: String?          // v1.0 单段译文，仅老记录存在
+    let literalOutput: String?   // 直译（v1.1 新记录）
+    let rewriteOutput: String?   // 转写（v1.1 新记录）
+    let error: String?
+}
+```
+
+- 编码：Swift 合成的 Codable 对 nil 可选字段自动省略键，故新记录只写 `literalOutput`/`rewriteOutput`，老记录只写 `output`，两种行都能被同一结构解码。
+- 历史窗口详情：有 `literalOutput`/`rewriteOutput` 则分"直译""转写"两块展示，各带复制；否则回退显示单段 `output`（老记录）。
+- 关键字过滤：匹配范围扩展到 `input`、`output`、`literalOutput`、`rewriteOutput`。
+
+### 11.5 界面（对第 4 节的改动）
+
+- 面板高度由 440 提升至 600（`FloatingPanel` 初始尺寸与 `TranslatePanelView` 的 frame 同步调整），宽度仍 560。
+- 结果区由一块改为上下两块，各含小标题（"直译""转写"）、该段状态（翻译中… / 失败红字）、独立滚动的只读可选文本、独立"复制"按钮（点击后按钮文案变"已复制"，1.5 秒还原）。两块平分结果区剩余高度。
+- 操作行仍为 Cmd+Return 触发的"翻译/停止"按钮；翻译中任一段可停止（一次停止同时中断两段）。
+- 面板隐藏不重置任何状态（FR-9 不变）。

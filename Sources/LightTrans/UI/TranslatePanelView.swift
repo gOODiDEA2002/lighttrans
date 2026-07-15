@@ -1,21 +1,27 @@
 import SwiftUI
 
-// 翻译面板界面（详细设计 4.3）
+// 翻译面板界面（详细设计 4.3、11.5）
 struct TranslatePanelView: View {
     @ObservedObject var viewModel: PanelViewModel
     @FocusState private var inputFocused: Bool
-    @State private var showCopied = false
-    @State private var copyResetTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             inputArea
             actionRow
             Divider()
-            resultArea
+            // 结果区上下两块：直译、转写，各自独立滚动与复制
+            ResultSection(title: "直译",
+                          state: viewModel.literalState,
+                          text: viewModel.literalResult,
+                          onCopy: { viewModel.copy(viewModel.literalResult) })
+            ResultSection(title: "转写",
+                          state: viewModel.rewriteState,
+                          text: viewModel.rewriteResult,
+                          onCopy: { viewModel.copy(viewModel.rewriteResult) })
         }
         .padding(16)
-        .frame(width: 560, height: 440)
+        .frame(width: 560, height: 600)
         .onAppear { focusInput() }
         // 每次面板呼出重新聚焦输入框
         .onReceive(NotificationCenter.default.publisher(for: .panelDidShow)) { _ in
@@ -37,54 +43,23 @@ struct TranslatePanelView: View {
                 Text("输入要翻译的文字，Cmd+Return 开始翻译")
                     .font(.system(size: 15))
                     .foregroundColor(.secondary)
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 14)
+                    // 与 TextEditor 内光标落点对齐：外层 padding(6) + NSTextView 行首内边距
+                    .padding(.leading, 11)
+                    .padding(.top, 8)
                     .allowsHitTesting(false)
             }
         }
     }
 
-    // 操作行：左侧状态文案，右侧翻译/停止按钮（Cmd+Return 触发）
+    // 操作行：右侧翻译/停止按钮（Cmd+Return 触发）
     private var actionRow: some View {
         HStack {
-            statusText
             Spacer()
             Button(action: primaryAction) {
                 Text(viewModel.isTranslating ? "停止" : "翻译")
                     .frame(minWidth: 56)
             }
             .keyboardShortcut(.return, modifiers: .command)
-        }
-    }
-
-    @ViewBuilder private var statusText: some View {
-        switch viewModel.state {
-        case .translating:
-            Text("翻译中…").font(.callout).foregroundColor(.secondary)
-        case .failed(let message):
-            Text(message).font(.callout).foregroundColor(.red)
-        default:
-            EmptyView()
-        }
-    }
-
-    // 结果区：只读可选中文本，右上角复制按钮
-    private var resultArea: some View {
-        VStack(alignment: .trailing, spacing: 6) {
-            Button(action: copy) {
-                Text(showCopied ? "已复制" : "复制")
-            }
-            .disabled(viewModel.resultText.isEmpty)
-
-            ScrollView {
-                Text(viewModel.resultText)
-                    .font(.system(size: 15))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(6)
-            }
-            .frame(maxHeight: .infinity)
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
         }
     }
 
@@ -96,17 +71,64 @@ struct TranslatePanelView: View {
         }
     }
 
+    private func focusInput() {
+        DispatchQueue.main.async { inputFocused = true }
+    }
+}
+
+// 单段结果区：小标题 + 状态 + 复制按钮 + 独立滚动的只读文本（详细设计 11.5）
+private struct ResultSection: View {
+    let title: String
+    let state: PanelViewModel.PartState
+    let text: String
+    let onCopy: () -> Void
+
+    @State private var showCopied = false
+    @State private var copyResetTask: Task<Void, Never>?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title).font(.callout).bold()
+                statusText
+                Spacer()
+                Button(action: copy) {
+                    Text(showCopied ? "已复制" : "复制")
+                }
+                .disabled(text.isEmpty)
+            }
+            ScrollView {
+                Text(text)
+                    .font(.system(size: 15))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(6)
+            }
+            .frame(maxHeight: .infinity)
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
+        }
+    }
+
+    @ViewBuilder private var statusText: some View {
+        switch state {
+        case .translating:
+            Text("翻译中…").font(.caption).foregroundColor(.secondary)
+        case .failed(let message):
+            Text(message).font(.caption).foregroundColor(.red).lineLimit(1)
+        case .stopped:
+            Text("已停止").font(.caption).foregroundColor(.secondary)
+        default:
+            EmptyView()
+        }
+    }
+
     private func copy() {
-        viewModel.copyResult()
+        onCopy()
         showCopied = true
         copyResetTask?.cancel()
         copyResetTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             showCopied = false
         }
-    }
-
-    private func focusInput() {
-        DispatchQueue.main.async { inputFocused = true }
     }
 }

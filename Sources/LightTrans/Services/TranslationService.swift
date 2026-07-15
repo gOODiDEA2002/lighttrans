@@ -21,12 +21,13 @@ struct TranslationService {
         self.config = config
     }
 
-    // 唯一入口：返回一个陆续吐出译文片段、可能中途报错的异步序列（系统设计第 6 节）
-    func translate(text: String) -> AsyncThrowingStream<String, Error> {
+    // 入口：返回一个陆续吐出译文片段、可能中途报错的异步序列（系统设计第 6 节、详细设计 11.2）
+    // template 由调用方传入（直译或转写模板），其余配置仍从 ConfigStore 读取
+    func translate(text: String, template: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    try await run(text: text, continuation: continuation)
+                    try await run(text: text, template: template, continuation: continuation)
                     continuation.finish()
                 } catch is CancellationError {
                     continuation.finish(throwing: CancellationError())
@@ -51,6 +52,7 @@ struct TranslationService {
     }
 
     private func run(text: String,
+                     template: String,
                      continuation: AsyncThrowingStream<String, Error>.Continuation) async throws {
         // 1. 读配置并校验
         var baseURL = config.apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -66,7 +68,6 @@ struct TranslationService {
         }
 
         // 2. 渲染提示词：含 {{text}} 则替换，否则以"模板 + 空行 + 原文"兜底
-        let template = config.promptTemplate
         let prompt: String
         if template.contains("{{text}}") {
             prompt = template.replacingOccurrences(of: "{{text}}", with: text)

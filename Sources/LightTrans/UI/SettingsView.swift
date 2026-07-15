@@ -13,8 +13,8 @@ struct SettingsView: View {
     @State private var launchError: String?
     @State private var isRevertingLaunch = false
 
-    private var templateMissingPlaceholder: Bool {
-        !config.promptTemplate.contains("{{text}}")
+    private func templateMissingPlaceholder(_ template: String) -> Bool {
+        !template.contains("{{text}}")
     }
 
     var body: some View {
@@ -35,18 +35,18 @@ struct SettingsView: View {
                     .onSubmit { commitMaxTokens() }
             }
 
-            Section("提示词模板") {
+            Section("直译提示词模板") {
+                TextEditor(text: $config.literalPromptTemplate)
+                    .font(.system(size: 13))
+                    .frame(height: 120)
+                templateHint(for: config.literalPromptTemplate)
+            }
+
+            Section("转写提示词模板") {
                 TextEditor(text: $config.promptTemplate)
                     .font(.system(size: 13))
-                    .frame(height: 140)
-                Text("用 {{text}} 表示待翻译的原文")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                if templateMissingPlaceholder {
-                    Text("模板未包含 {{text}}，翻译时将把原文追加到模板末尾")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
+                    .frame(height: 120)
+                templateHint(for: config.promptTemplate)
             }
 
             Section("通用") {
@@ -93,6 +93,18 @@ struct SettingsView: View {
         .onDisappear {
             saveAPIKey()
             commitMaxTokens()
+        }
+    }
+
+    // 模板下方提示：占位符说明；缺 {{text}} 时红字告知将追加原文
+    @ViewBuilder private func templateHint(for template: String) -> some View {
+        Text("用 {{text}} 表示待翻译的原文")
+            .font(.caption)
+            .foregroundColor(.secondary)
+        if templateMissingPlaceholder(template) {
+            Text("模板未包含 {{text}}，翻译时将把原文追加到模板末尾")
+                .font(.caption)
+                .foregroundColor(.red)
         }
     }
 

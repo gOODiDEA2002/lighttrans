@@ -65,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // 创建浮动面板与其内容视图
     private func setupPanel() {
         panelViewModel = PanelViewModel()
-        panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 440))
+        panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 600))
         panel.contentView = NSHostingView(rootView: TranslatePanelView(viewModel: panelViewModel))
     }
 

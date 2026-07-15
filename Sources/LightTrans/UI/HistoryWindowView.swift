@@ -8,12 +8,13 @@ struct HistoryWindowView: View {
     @State private var filter = ""
     @State private var selectedID: HistoryRecord.ID?
 
-    // 关键字对原文与译文做包含匹配
+    // 关键字对原文与译文（含直译、转写、老记录单段）做包含匹配
     private var filtered: [HistoryRecord] {
         guard !filter.isEmpty else { return records }
         let key = filter.lowercased()
-        return records.filter {
-            $0.input.lowercased().contains(key) || $0.output.lowercased().contains(key)
+        return records.filter { record in
+            let fields = [record.input, record.output, record.literalOutput, record.rewriteOutput]
+            return fields.contains { $0?.lowercased().contains(key) == true }
         }
     }
 
@@ -84,7 +85,13 @@ struct HistoryWindowView: View {
                         metaLine("状态", Self.statusText(record))
                     }
                     detailSection("原文", record.input)
-                    detailSection("译文", record.output.isEmpty ? "（无输出）" : record.output)
+                    // v1.1 双段记录分"直译""转写"展示；否则回退老记录单段译文
+                    if record.literalOutput != nil || record.rewriteOutput != nil {
+                        detailSection("直译", displayText(record.literalOutput))
+                        detailSection("转写", displayText(record.rewriteOutput))
+                    } else {
+                        detailSection("译文", displayText(record.output))
+                    }
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -128,6 +135,12 @@ struct HistoryWindowView: View {
     private func copy(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    // 空或缺失的译文段显示占位文案
+    private func displayText(_ value: String?) -> String {
+        let text = value ?? ""
+        return text.isEmpty ? "（无输出）" : text
     }
 
     // MARK: - 文本格式化
