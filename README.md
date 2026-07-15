@@ -32,7 +32,7 @@ macOS 菜单栏翻译小工具：全局快捷键呼出浮动面板，输入文�
 
 ## 构建与安装
 
-环境要求：macOS 14 及以上；已安装完整 Xcode，且 `xcode-select -p` 指向该 Xcode 的 Developer 目录。项目依赖包含 SwiftUI 预览宏，仅安装 Command Line Tools 或独立 Swift 工具链不能完成干净构建。
+环境要求：macOS 14 及以上；已安装 Command Line Tools 和 Swift 6.1 及以上版本。无需安装完整 Xcode。
 
 推荐直接执行一键脚本。脚本会构建 release 版本、安装或更新 `/Applications/LightTrans.app`，并重新启动应用；已有设置、API Key 和历史记录不会被删除。
 

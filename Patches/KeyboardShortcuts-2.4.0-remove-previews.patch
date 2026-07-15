@@ -1,0 +1,22 @@
+diff --git a/Sources/KeyboardShortcuts/Recorder.swift b/Sources/KeyboardShortcuts/Recorder.swift
+--- a/Sources/KeyboardShortcuts/Recorder.swift
++++ b/Sources/KeyboardShortcuts/Recorder.swift
+@@ -169,18 +169,4 @@ extension KeyboardShortcuts.Recorder {
+ 	}
+ }
+ 
+-#Preview {
+-	KeyboardShortcuts.Recorder("record_shortcut", name: .init("xcodePreview"))
+-		.environment(\.locale, .init(identifier: "en"))
+-}
+-
+-#Preview {
+-	KeyboardShortcuts.Recorder("record_shortcut", name: .init("xcodePreview"))
+-		.environment(\.locale, .init(identifier: "zh-Hans"))
+-}
+-
+-#Preview {
+-	KeyboardShortcuts.Recorder("record_shortcut", name: .init("xcodePreview"))
+-		.environment(\.locale, .init(identifier: "ru"))
+-}
+ #endif

@@ -14,32 +14,42 @@ CONTENTS_DIR="${APP_DIR}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 ICON_PATH="Resources/AppIcon.icns"
+KEYBOARD_SHORTCUTS_CHECKOUT=".build/checkouts/KeyboardShortcuts"
+KEYBOARD_SHORTCUTS_RECORDER="${KEYBOARD_SHORTCUTS_CHECKOUT}/Sources/KeyboardShortcuts/Recorder.swift"
+KEYBOARD_SHORTCUTS_PATCH="${ROOT_DIR}/Patches/KeyboardShortcuts-2.4.0-remove-previews.patch"
+EXPECTED_KEYBOARD_SHORTCUTS_REVISION="1aef85578fdd4f9eaeeb8d53b7b4fc31bf08fe27"
 
 if [[ ! -f "${ICON_PATH}" ]]; then
     echo "错误：找不到应用图标 ${ICON_PATH}，请先运行 bash Scripts/generate-app-icon.sh" >&2
     exit 1
 fi
 
-# KeyboardShortcuts 2.4.0 含 SwiftUI #Preview。Xcode 26.3 的命令行构建不会自动
-# 搜索 macOS 平台插件目录，必须显式传入 PreviewsMacros 所在位置。
-if ! SDK_PLATFORM_PATH="$(xcrun --sdk macosx --show-sdk-platform-path 2>/dev/null)"; then
-    echo "错误：无法找到 macOS SDK，请安装完整 Xcode 并检查 xcode-select 配置" >&2
+# KeyboardShortcuts 2.4.0 含三个只供 Xcode 使用的 SwiftUI #Preview。
+# 目标机器可能只有 Command Line Tools，构建前删除这些预览代码，运行时代码不变。
+echo "==> 解析 Swift Package 依赖"
+swift package resolve
+if [[ ! -f "${KEYBOARD_SHORTCUTS_RECORDER}" || ! -f "${KEYBOARD_SHORTCUTS_PATCH}" ]]; then
+    echo "错误：找不到 KeyboardShortcuts 源码或兼容补丁" >&2
     exit 1
 fi
-PREVIEW_PLUGIN_DIR="${SDK_PLATFORM_PATH}/Developer/usr/lib/swift/host/plugins"
-if [[ ! -f "${PREVIEW_PLUGIN_DIR}/libPreviewsMacros.dylib" ]]; then
-    echo "错误：找不到 PreviewsMacros，请安装完整 Xcode 并将 xcode-select 指向其 Developer 目录" >&2
+ACTUAL_KEYBOARD_SHORTCUTS_REVISION="$(git -C "${KEYBOARD_SHORTCUTS_CHECKOUT}" rev-parse HEAD)"
+if [[ "${ACTUAL_KEYBOARD_SHORTCUTS_REVISION}" != "${EXPECTED_KEYBOARD_SHORTCUTS_REVISION}" ]]; then
+    echo "错误：KeyboardShortcuts 版本与补丁不匹配，请先更新兼容补丁" >&2
     exit 1
 fi
-SWIFT_BUILD_ARGS=(
-    -c release
-    -Xswiftc -plugin-path
-    -Xswiftc "${PREVIEW_PLUGIN_DIR}"
-)
+if grep -q '^[[:space:]]*#Preview' "${KEYBOARD_SHORTCUTS_RECORDER}"; then
+    echo "==> 移除 KeyboardShortcuts 的 Xcode 预览代码"
+    git -C "${KEYBOARD_SHORTCUTS_CHECKOUT}" apply --check "${KEYBOARD_SHORTCUTS_PATCH}"
+    git -C "${KEYBOARD_SHORTCUTS_CHECKOUT}" apply "${KEYBOARD_SHORTCUTS_PATCH}"
+fi
+if grep -q '^[[:space:]]*#Preview' "${KEYBOARD_SHORTCUTS_RECORDER}"; then
+    echo "错误：KeyboardShortcuts 预览代码未成功移除" >&2
+    exit 1
+fi
 
 # 1. release 构建
 echo "==> swift build -c release"
-swift build "${SWIFT_BUILD_ARGS[@]}"
+swift build -c release
 BIN_PATH="$(swift build -c release --show-bin-path)"
 
 # 2. 组装 .app 目录结构（先清理旧产物）

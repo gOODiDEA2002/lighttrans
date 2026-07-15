@@ -32,6 +32,8 @@ mac-translator/
 │   └── Info.plist                     # 打包用属性列表模板
 ├── Scripts/
 │   └── build-app.sh                   # 构建并打包 .app 的脚本
+├── Patches/
+│   └── KeyboardShortcuts-2.4.0-remove-previews.patch  # 移除依赖中的 Xcode 预览代码
 ├── docs/                              # 设计文档（本目录）
 └── README.md
 ```
@@ -305,12 +307,13 @@ enum TranslationError: Error {
 
 ### 8.2 build-app.sh 步骤
 
-1. 通过 `xcrun --sdk macosx --show-sdk-platform-path` 获取 macOS 平台目录，确认其中存在 `Developer/usr/lib/swift/host/plugins/libPreviewsMacros.dylib`；缺少时停止并提示安装或切换到完整 Xcode。
-2. 执行 `swift build -c release -Xswiftc -plugin-path -Xswiftc {插件目录}`（铁律 L-9）。
-3. 组装 `build/LightTrans.app/Contents/{MacOS,Resources}` 目录结构。
-4. 复制可执行文件至 `Contents/MacOS/LightTrans`；复制 Info.plist 至 `Contents/`。
-5. `codesign --force --sign - build/LightTrans.app`（ad-hoc 签名）。
-6. 输出产物路径。脚本任何一步失败立即退出并报错（`set -euo pipefail`）。
+1. 执行 `swift package resolve`，确认 `KeyboardShortcuts` 的修订号与 `Package.resolved` 中固定的 `1aef8557` 一致。
+2. 若 `Recorder.swift` 中仍含 `#Preview`，应用 `Patches/KeyboardShortcuts-2.4.0-remove-previews.patch`；补丁只删除三个开发预览块，不修改运行时代码（铁律 L-9）。修订号或补丁上下文不匹配时停止并报错，不继续编译。
+3. 执行 `swift build -c release`。
+4. 组装 `build/LightTrans.app/Contents/{MacOS,Resources}` 目录结构。
+5. 复制可执行文件至 `Contents/MacOS/LightTrans`；复制 Info.plist 至 `Contents/`。
+6. `codesign --force --sign - build/LightTrans.app`（ad-hoc 签名）。
+7. 输出产物路径。脚本任何一步失败立即退出并报错（`set -euo pipefail`）。
 
 安装方式：将 `build/LightTrans.app` 拷贝到 `/Applications` 后启动（开机自启功能要求应用位于稳定路径，对应假设 A-3）。
 
