@@ -34,21 +34,33 @@ macOS 菜单栏翻译小工具：全局快捷键呼出浮动面板，输入文�
 
 环境要求：macOS 14 及以上；已安装 Xcode 或 Swift 工具链（Swift 5.9+）。
 
-1. 构建并打包为 .app（release 构建、ad-hoc 本地签名）：
+推荐直接执行一键脚本。脚本会构建 release 版本、安装或更新 `/Applications/LightTrans.app`，并重新启动应用；已有设置、API Key 和历史记录不会被删除。
 
-   ```bash
-   bash Scripts/build-app.sh
-   ```
+```bash
+bash Scripts/install-app.sh
+```
 
-   产物位于 `build/LightTrans.app`。
+如果 `/Applications` 需要管理员权限，脚本会在文件替换阶段请求系统密码。需要安装到其他目录时，可设置 `LIGHTTRANS_INSTALL_DIR`：
 
-2. 安装：将 `build/LightTrans.app` 拷贝到 `/Applications`（开机自启功能要求应用位于稳定路径）：
+```bash
+LIGHTTRANS_INSTALL_DIR="$HOME/Applications" bash Scripts/install-app.sh
+```
 
-   ```bash
-   cp -R build/LightTrans.app /Applications/
-   ```
+只构建、不安装时执行：
 
-3. 启动：双击 `/Applications/LightTrans.app`。首次启动仅在菜单栏出现图标（气泡样式），不出现在 Dock。
+```bash
+bash Scripts/build-app.sh
+```
+
+产物位于 `build/LightTrans.app`，采用 ad-hoc 本地签名。
+
+应用图标的源文件为 `Resources/AppIcon.png`。修改源图后，先重新生成 `.icns`，再构建：
+
+```bash
+bash Scripts/generate-app-icon.sh
+```
+
+首次启动仅在菜单栏出现图标（气泡样式），不出现在 Dock。
 
 仅本机使用，无需苹果开发者签名与公证；采用 ad-hoc 本地签名。
 
@@ -82,9 +94,7 @@ macOS 菜单栏翻译小工具：全局快捷键呼出浮动面板，输入文�
 
   ```bash
   cd mac-translator
-  bash Scripts/build-app.sh
-  cp -R build/LightTrans.app /Applications/
-  open /Applications/LightTrans.app
+  bash Scripts/install-app.sh
   ```
 
 - 方式 B：把打好的 `LightTrans.app` 拷过去（隔空投送/U 盘/网络），在第二台 Mac 上去隔离标记并重新签名：
