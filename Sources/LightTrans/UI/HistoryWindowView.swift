@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-// 历史窗口（详细设计 10.5）：左侧记录列表，右侧选中详情，顶部关键字过滤与刷新
+// 历史记录窗口（详细设计 13.3、UI 方案 v3.0）
 struct HistoryWindowView: View {
     @State private var records: [HistoryRecord] = []
     @State private var pendingDevices = 0
@@ -35,8 +35,10 @@ struct HistoryWindowView: View {
                     .padding(.vertical, 6)
             }
             HSplitView {
-                listView.frame(minWidth: 240, idealWidth: 272, maxWidth: 340)
-                detailView.frame(minWidth: 340, maxWidth: .infinity)
+                listView
+                    .frame(minWidth: 240, idealWidth: 270, maxWidth: 340)
+                detailView
+                    .frame(minWidth: 340, maxWidth: .infinity)
             }
         }
         .frame(minWidth: 680, minHeight: 480)
@@ -44,12 +46,22 @@ struct HistoryWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: .historyReload)) { _ in reload() }
     }
 
+    // MARK: - 顶部工具栏（含搜索框、匹配计数与刷新按钮）
+
     private var toolbar: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass").foregroundColor(.secondary)
-            TextField("按关键字过滤原文或译文", text: $filter)
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.secondary)
+            TextField("搜索历史记录…", text: $filter)
                 .textFieldStyle(.plain)
-            Spacer()
+                .onChange(of: filter) { _, _ in
+                    syncSelectionAfterFilter()
+                }
+
+            Text(filter.isEmpty ? "共 \(records.count) 条" : "匹配 \(filtered.count) 条")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
             Button(action: reload) {
                 Image(systemName: "arrow.clockwise")
             }
@@ -60,69 +72,205 @@ struct HistoryWindowView: View {
         .padding(.vertical, 8)
     }
 
+    // MARK: - 左侧列表区（微型语义色点 + 2 行摘要 + 低对比度设备次要文本）
+
     private var listView: some View {
         List(filtered, selection: $selectedID) { record in
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(Self.shortTime(record.time)).font(.caption).foregroundColor(.secondary)
-                    Spacer()
-                    Text(record.device).font(.caption2).foregroundColor(.secondary).lineLimit(1)
+            HStack(alignment: .top, spacing: 8) {
+                Circle()
+                    .fill(statusDotColor(for: record))
+                    .frame(width: 6, height: 6)
+                    .padding(.top, 5)
+                    .accessibilityLabel(statusAccessibilityLabel(for: record))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                        Text(Self.shortTime(record.time))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text(record.device)
+                            .font(.caption2)
+                            .foregroundColor(.secondary.opacity(0.8))
+                            .lineLimit(1)
+                    }
+
+                    Text(record.input)
+                        .font(.system(size: 13))
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Text(Self.summary(record.input)).font(.system(size: 13)).lineLimit(1)
             }
             .padding(.vertical, 2)
         }
     }
 
+    // MARK: - 右侧详情区（元数据 2 行网格 + 3 张独立正文卡片）
+
     @ViewBuilder private var detailView: some View {
         if let record = selectedRecord {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        metaLine("时间", Self.fullTime(record.time))
-                        metaLine("设备", record.device)
-                        metaLine("模型", record.model)
-                        metaLine("状态", Self.statusText(record))
-                    }
-                    detailSection("原文", record.input)
-                    // v1.1 双段记录分"直译""转写"展示；否则回退老记录单段译文
+                    // 元数据 2 行网格卡片
+                    metadataGrid(for: record)
+
+                    // 原文卡片
+                    DetailCard(title: "原文", icon: "text.quote", content: record.input)
+
+                    // 直译与转写卡片（v1.1 双段展示；老记录单段降级展示）
                     if record.literalOutput != nil || record.rewriteOutput != nil {
-                        detailSection("直译", displayText(record.literalOutput))
-                        detailSection("转写", displayText(record.rewriteOutput))
+                        DetailCard(
+                            title: "直译",
+                            icon: "character.book.closed",
+                            content: displayText(record.literalOutput)
+                        )
+                        DetailCard(
+                            title: "转写",
+                            icon: "sparkles",
+                            content: displayText(record.rewriteOutput)
+                        )
                     } else {
-                        detailSection("译文", displayText(record.output))
+                        DetailCard(
+                            title: "译文",
+                            icon: "character.book.closed",
+                            content: displayText(record.output)
+                        )
                     }
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         } else {
-            Text("选择左侧一条记录查看详情")
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    private func metaLine(_ label: String, _ value: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(label).font(.caption).foregroundColor(.secondary).frame(width: 36, alignment: .leading)
-            Text(value).font(.caption).textSelection(.enabled)
-        }
-    }
-
-    private func detailSection(_ title: String, _ content: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(title).font(.callout).bold()
-                Spacer()
-                Button("复制") { copy(content) }.font(.caption)
+            // 空状态占位
+            VStack(spacing: 10) {
+                Image(systemName: "tray")
+                    .font(.system(size: 36))
+                    .foregroundColor(.secondary.opacity(0.4))
+                Text(filtered.isEmpty ? "无匹配的历史记录" : "选择左侧一条记录查看详情")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
             }
-            Text(content)
-                .font(.system(size: 13))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(8)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.08)))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    // MARK: - 元数据 2 行网格
+
+    private func metadataGrid(for record: HistoryRecord) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Row 1: 时间 + 状态 Badge
+            HStack(alignment: .center) {
+                HStack(spacing: 4) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    Text(Self.fullTime(record.time))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                statusBadge(for: record)
+            }
+
+            // Row 2: 设备 + 模型名
+            HStack(alignment: .center) {
+                HStack(spacing: 4) {
+                    Image(systemName: "laptopcomputer")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    Text(record.device)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                HStack(spacing: 4) {
+                    Image(systemName: "cpu")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    Text(record.model)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .help(record.model)
+                }
+            }
+        }
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder private func statusBadge(for record: HistoryRecord) -> some View {
+        switch record.status {
+        case "done":
+            Text("完成")
+                .font(.caption2)
+                .foregroundColor(.green)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.green.opacity(0.12))
+                .clipShape(Capsule())
+        case "stopped":
+            Text("已中途停止")
+                .font(.caption2)
+                .foregroundColor(.orange)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.orange.opacity(0.12))
+                .clipShape(Capsule())
+        case "failed":
+            Text(record.error.map { "失败：\($0)" } ?? "失败")
+                .font(.caption2)
+                .foregroundColor(.red)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.red.opacity(0.12))
+                .clipShape(Capsule())
+                .lineLimit(1)
+        default:
+            Text(record.status)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.secondary.opacity(0.12))
+                .clipShape(Capsule())
+        }
+    }
+
+    // MARK: - 辅助方法与状态处理
+
+    private func statusDotColor(for record: HistoryRecord) -> Color {
+        switch record.status {
+        case "done": return .green
+        case "stopped": return .orange
+        case "failed": return .red
+        default: return .secondary
+        }
+    }
+
+    private func statusAccessibilityLabel(for record: HistoryRecord) -> String {
+        switch record.status {
+        case "done": return "翻译完成"
+        case "stopped": return "已中途停止"
+        case "failed": return "翻译失败：\(record.error ?? "")"
+        default: return record.status
+        }
+    }
+
+    private func syncSelectionAfterFilter() {
+        let currentFiltered = filtered
+        if currentFiltered.isEmpty {
+            selectedID = nil
+        } else if let id = selectedID, currentFiltered.contains(where: { $0.id == id }) {
+            // 保持当前选中
+        } else {
+            selectedID = currentFiltered.first?.id
         }
     }
 
@@ -130,14 +278,9 @@ struct HistoryWindowView: View {
         let result = HistoryStore.shared.loadAll()
         records = result.records
         pendingDevices = result.pendingDevices
+        syncSelectionAfterFilter()
     }
 
-    private func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-    }
-
-    // 空或缺失的译文段显示占位文案
     private func displayText(_ value: String?) -> String {
         let text = value ?? ""
         return text.isEmpty ? "（无输出）" : text
@@ -164,19 +307,72 @@ struct HistoryWindowView: View {
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return formatter.string(from: date)
     }
+}
 
-    private static func summary(_ input: String) -> String {
-        let firstLine = input.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
-            .first.map(String.init) ?? input
-        return firstLine.count > 60 ? String(firstLine.prefix(60)) + "…" : firstLine
+// MARK: - 独立正文卡片组件（带 1.5 秒绿色 checkmark 复制动效）
+
+private struct DetailCard: View {
+    let title: String
+    let icon: String
+    let content: String
+
+    @State private var showCopied = false
+    @State private var copyTask: Task<Void, Never>?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Button(action: performCopy) {
+                    HStack(spacing: 3) {
+                        if showCopied {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 11))
+                                .foregroundColor(.green)
+                            Text("已复制")
+                                .font(.system(size: 11))
+                                .foregroundColor(.green)
+                        } else {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 11))
+                            Text("复制")
+                                .font(.system(size: 11))
+                        }
+                    }
+                    .frame(minWidth: 46)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(content.isEmpty || content == "（无输出）")
+            }
+
+            Text(content)
+                .font(.system(size: 13))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.4))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+                )
+        }
     }
 
-    private static func statusText(_ record: HistoryRecord) -> String {
-        switch record.status {
-        case "done": return "完成"
-        case "stopped": return "已中途停止"
-        case "failed": return "失败：\(record.error ?? "")"
-        default: return record.status
+    private func performCopy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(content, forType: .string)
+        showCopied = true
+        copyTask?.cancel()
+        copyTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            showCopied = false
         }
     }
 }
