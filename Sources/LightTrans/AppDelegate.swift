@@ -62,11 +62,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                    in: button)
     }
 
-    // 创建浮动面板与其内容视图
+    // 创建浮动面板与其内容视图（详细设计 13.1 闭包依赖注入）
     private func setupPanel() {
         panelViewModel = PanelViewModel()
         panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 600))
-        panel.contentView = NSHostingView(rootView: TranslatePanelView(viewModel: panelViewModel))
+        let panelView = TranslatePanelView(
+            viewModel: panelViewModel,
+            onOpenSettings: { [weak self] in self?.openSettings() },
+            onOpenHistory: { [weak self] in self?.openHistory() }
+        )
+        panel.contentView = NSHostingView(rootView: panelView)
     }
 
     // 启动 Option+T 全局快捷键监听（详细设计 3.2，铁律 L-3）

@@ -17,6 +17,9 @@ final class FloatingPanel: NSPanel {
         isMovableByWindowBackground = true
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
+        backgroundColor = .clear
+        isOpaque = false
+        hasShadow = true
         // 隐藏窗口三个标准按钮，保持无边框观感
         standardWindowButton(.closeButton)?.isHidden = true
         standardWindowButton(.miniaturizeButton)?.isHidden = true

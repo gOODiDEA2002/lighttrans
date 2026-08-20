@@ -518,3 +518,49 @@ struct HistoryRecord: Codable, Identifiable {
 4. 新应用先复制到安装目录内的临时目录并再次校验，再将旧版本移到同目录备份位置，最后切换为新版本。切换失败时恢复旧版本，避免留下不完整的应用包。
 5. 安装目录不可直接写入时使用 `sudo` 完成文件替换；构建和启动仍以当前用户执行。
 6. 安装成功后删除临时文件和旧版本备份，清除本地应用包的隔离标记并启动应用。UserDefaults、钥匙串和历史记录均位于应用包之外，更新时保持不变。
+
+## 13. 增量 v1.3：UI 界面与交互重构
+
+本节补充 UI 优化方案（docs/06-ui-optimization-proposal.md）确立的界面与交互规格。保持既有配置项、钥匙串存取与历史记录 JSON Lines 存储协议完全不变。
+
+### 13.1 浮动翻译面板规格（TranslatePanelView & FloatingPanel）
+
+- **窗口与材质**：`FloatingPanel` 固定为 `560 × 600 pt`，圆角 `14 pt`，背景应用 `NSVisualEffectView`（材质为 `.popover`，`blendingMode = .behindWindow`）。
+- **垂直布局预算**：
+  - 四周内边距：`14 pt`（内部可用高 `572 pt`）。
+  - 输入卡片：高 `100 pt`，内部含 TextEditor、字符统计（如「82 字符」）与一键清空按钮（`xmark.circle.fill`，翻译中禁用）。
+  - Esc 键：始终绑定隐藏面板（`FloatingPanel.cancelOperation` 调 `orderOut`），不作清空。
+  - 操作栏：高 `28 pt`，空闲时为强调色「翻译 ⌘↩」；生成中切换为警示样式「停止」（带 `stop.fill` 图标），左侧配 ProgressView 与「正在生成…」。
+  - 双段结果卡片（直译与转写）：平分剩余高度各约 `190 pt`，各自独立滚动。头部展示单色图标（`character.book.closed` 与 `sparkles`）及局部状态（「正在直译…」/「已完成」/「失败：文案」）。复制按钮带 1.5 秒绿色 checkmark「已复制」反馈。
+  - 底部辅助栏：高 `20 pt`，左侧显示「⌘↩ 翻译 · Esc 隐藏」；右侧提供设置与历史直达图标按钮。
+- **依赖注入**：`TranslatePanelView` 声明 `onOpenSettings: () -> Void` 与 `onOpenHistory: () -> Void` 闭包，由 `AppDelegate` 创建时注入。
+
+### 13.2 设置窗口规格（SettingsView & TranslationService）
+
+- **窗口与导航**：固定 `520 × 450 pt`，采用侧边栏真实分页导航（左侧宽 `140 pt`，右侧宽 `380 pt`），固定 4 个分类：
+  1. 接口配置（`network`）
+  2. 提示词模板（`square.and.pencil`）
+  3. 通用与快捷键（`command`）
+  4. 历史记录（`clock.arrow.circlepath`）
+- **接口配置**：
+  - 模型名为自由输入的 `TextField`。
+  - API Key 提供明暗文切换（`eye` / `eye.slash`），仅在失焦或关闭时持久化。
+  - 连通性测试契约（`TranslationService.testConnection`）：
+    - 请求：`POST {baseURL}/chat/completions`，Header 携带 `Authorization: Bearer {apiKey}` 与 `Content-Type: application/json`；
+    - 请求体：`stream: false`，`max_tokens: 5`，`messages: [{"role": "user", "content": "Reply with OK."}]`；
+    - 超时：10 秒；支持调用端 `Task.cancel()` 立即中断底层 URLSession 请求；
+    - 成功判定：收到 HTTP 2xx 且能成功解码 `choices[0].message.content`（非空字符串），记录请求发出至解析完成的毫秒耗时（如 `185ms`）；
+    - 错误归类：非 2xx 与网络错误按第 7 节映射为 `TranslationError`；2xx 但 JSON 不符合契约映射为 `badResponse`；
+    - 隔离性：测试仅使用当前表单内存中正在编辑的值，**不保存至 UserDefaults / Keychain，绝对不调用 HistoryStore 写入历史记录**；
+    - 界面反馈：按钮旁展示进度指示器或「当前配置连接成功 (xxx ms)」/ 红色错误文案，并注明「测试将发送极简请求，可能产生极微量 API 费用」；`SettingsView` 持有独立测试 Task，窗口关闭或重新发起测试时自动取消。
+- **提示词模板**：同页纵向完整展示「直译提示词模板」与「转写提示词模板」，各带 `{{text}}` 校验徽章（绿色就绪 / 橙色缺失）。
+
+### 13.3 历史记录窗口规格（HistoryWindowView）
+
+- **窗口与分栏**：固定初始 `680 × 480 pt`，左侧列表 `270 pt`，右侧详情 `410 pt`。
+- **列表项**：摘要通过 `.lineLimit(2)` 限制为最多 2 行；左侧使用微型语义色点（绿/橙/红）并提供无障碍标签；设备名使用低对比度次要文本。
+- **搜索与选中联动**：
+  - 搜索框展示匹配计数；
+  - `selectedRecord = filtered.first { $0.id == selectedID }`；
+  - 筛选后旧选中项仍在结果中则保留；若被过滤且有其他匹配项则自动选中首项；无结果时置 `selectedID = nil` 并展示空状态占位。
+- **详情区元数据**：2 行网格排版（Row 1: 时间 + 状态 Badge；Row 2: 设备 + 模型，采用尾部截断与 hover tooltip）。原文、直译、转写分 3 卡片独立展示与复制。
