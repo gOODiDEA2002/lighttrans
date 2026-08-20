@@ -1,9 +1,9 @@
 # UI 界面优化方案与视觉设计规范（v3.0）
 
-项目名：mac-translator（应用显示名：轻译 / LightTrans）  
-文档版本：v3.0（2026-08-20）  
-状态：待评审（已彻底关闭 v3 评审 6 项 P1，尺寸与交互状态全部收敛）  
-关联文档：01-requirements.md（需求）、02-system-design.md（系统设计）、03-detailed-design.md（详细设计）、ai/2026-08-20-ui-optimization-proposal-review-v3.md（评审报告）
+项目名：mac-translator（应用显示名：轻译 / LightTrans）
+文档版本：v3.0（2026-08-20）
+状态：已评审通过并完成实施（v3.0）
+关联文档：01-requirements.md（需求）、02-system-design.md（系统设计）、03-detailed-design.md（详细设计）、ai/2026-08-20-ui-optimization-proposal-review-v4.md（评审报告）
 
 ---
 

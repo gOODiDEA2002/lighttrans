@@ -19,7 +19,7 @@ struct HistoryWindowView: View {
     }
 
     private var selectedRecord: HistoryRecord? {
-        records.first { $0.id == selectedID }
+        filtered.first { $0.id == selectedID }
     }
 
     var body: some View {
@@ -173,8 +173,8 @@ struct HistoryWindowView: View {
                 statusBadge(for: record)
             }
 
-            // Row 2: 设备 + 模型名
-            HStack(alignment: .center) {
+            // Row 2: 设备 + 模型名（均支持长文本尾部截断与 hover tooltip）
+            HStack(alignment: .center, spacing: 12) {
                 HStack(spacing: 4) {
                     Image(systemName: "laptopcomputer")
                         .font(.system(size: 11))
@@ -182,8 +182,12 @@ struct HistoryWindowView: View {
                     Text(record.device)
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(record.device)
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
+
                 HStack(spacing: 4) {
                     Image(systemName: "cpu")
                         .font(.system(size: 11))
@@ -192,8 +196,10 @@ struct HistoryWindowView: View {
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                         .help(record.model)
                 }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .padding(10)

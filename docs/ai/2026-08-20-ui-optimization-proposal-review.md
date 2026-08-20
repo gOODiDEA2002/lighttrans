@@ -1,7 +1,7 @@
 # 评审报告：Gemini UI 界面优化方案
 
-评审对象：`docs/06-ui-optimization-proposal.md` v1.0  
-评审日期：2026-08-20  
+评审对象：`docs/06-ui-optimization-proposal.md` v1.0
+评审日期：2026-08-20
 评审范围：用户体验、UI 美观度；同时核对方案与现有需求、详细设计和代码是否一致。
 
 ## 1. 结论先行

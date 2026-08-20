@@ -315,10 +315,10 @@ struct SettingsView: View {
         } else {
             Text("模板缺少 {{text}}")
                 .font(.caption2)
-                .foregroundColor(.red)
+                .foregroundColor(.orange)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(Color.red.opacity(0.12))
+                .background(Color.orange.opacity(0.12))
                 .clipShape(Capsule())
         }
     }

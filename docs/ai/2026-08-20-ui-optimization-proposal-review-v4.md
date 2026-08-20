@@ -1,7 +1,7 @@
 # 评审报告：Gemini UI 界面优化方案 v3.0 复审
 
-评审对象：`docs/06-ui-optimization-proposal.md` v3.0、`docs/03-detailed-design.md` 第 13 节、`docs/04-implementation-plan.md` T12–T14 及更新后的设计稿  
-评审日期：2026-08-20  
+评审对象：`docs/06-ui-optimization-proposal.md` v3.0、`docs/03-detailed-design.md` 第 13 节、`docs/04-implementation-plan.md` T12–T14 及更新后的设计稿
+评审日期：2026-08-20
 评审方式：逐条核对 v3 评审的 6 项 P1，并检查各任务是否具备独立开工条件。
 
 ## 1. 结论先行
