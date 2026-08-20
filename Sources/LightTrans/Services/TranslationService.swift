@@ -125,6 +125,70 @@ struct TranslationService {
         logger.info("翻译请求结束")
     }
 
+    // 轻量连通性探测接口（详细设计 13.2）
+    // 构造 max_tokens: 5 的非流式探测请求，超时 10 秒，支持取消，不写历史记录
+    func testConnection(baseURL: String, model: String, apiKey: String) async throws -> TimeInterval {
+        var cleanBaseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanKey.isEmpty, !cleanBaseURL.isEmpty, !cleanModel.isEmpty else {
+            throw TranslationError.notConfigured
+        }
+        while cleanBaseURL.hasSuffix("/") { cleanBaseURL.removeLast() }
+        guard let url = URL(string: cleanBaseURL + "/chat/completions") else {
+            throw TranslationError.badURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("Bearer \(cleanKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "model": cleanModel,
+            "stream": false,
+            "max_tokens": 5,
+            "messages": [["role": "user", "content": "Reply with OK."]]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let start = Date()
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch let urlError as URLError {
+            if urlError.code == .cancelled {
+                throw CancellationError()
+            }
+            throw TranslationError.network(urlError.localizedDescription)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw TranslationError.network(error.localizedDescription)
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw TranslationError.badResponse("无有效的 HTTP 响应")
+        }
+
+        guard (200...299).contains(http.statusCode) else {
+            let bodyText = String(data: data, encoding: .utf8) ?? ""
+            throw mapHTTPError(status: http.statusCode, body: bodyText)
+        }
+
+        // 解码非流式响应并校验 choices[0].message.content 是否有效
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = obj["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let message = firstChoice["message"] as? [String: Any],
+              let content = message["content"] as? String,
+              !content.isEmpty else {
+            throw TranslationError.badResponse("接口返回格式异常")
+        }
+
+        return Date().timeIntervalSince(start)
+    }
+
     // HTTP 错误归类（详细设计第 7 节）
     private func mapHTTPError(status: Int, body: String) -> TranslationError {
         var errorCode = ""

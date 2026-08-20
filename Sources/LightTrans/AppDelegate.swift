@@ -111,13 +111,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // 打开设置窗口：LSUIElement 应用需先激活本应用，窗口方能获焦可输入（铁律 L-2）
     @objc private func openSettings() {
         if settingsWindow == nil {
-            let hosting = NSHostingController(rootView: SettingsView())
-            hosting.sizingOptions = [.preferredContentSize]   // 窗口按内容自适应尺寸
-            let window = NSWindow(contentViewController: hosting)
-            window.styleMask = [.titled, .closable, .miniaturizable]
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 520, height: 450),
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
             window.title = "设置"
-            window.isReleasedWhenClosed = false
+            window.contentView = NSHostingView(rootView: SettingsView())
             window.center()
+            window.isReleasedWhenClosed = false
             settingsWindow = window
         }
         NSApp.activate(ignoringOtherApps: true)
