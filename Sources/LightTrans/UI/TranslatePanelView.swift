@@ -1,25 +1,41 @@
 import SwiftUI
 import AppKit
 
-// 翻译面板界面（详细设计 13.1、UI 方案 v3.0）
+// 翻译面板界面（详细设计 13.1、v5 视觉基准）
 struct TranslatePanelView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var viewModel: PanelViewModel
     let onOpenSettings: () -> Void
     let onOpenHistory: () -> Void
+    private let autoFocusInput: Bool
+    private let characterCountOverride: Int?
     @FocusState private var inputFocused: Bool
 
-    // 动态输入框高度（默认 100 pt，可在 70–240 pt 之间拖拽调节，双击复位）
-    @State private var inputHeight: CGFloat = 100
-    @State private var dragStartHeight: CGFloat = 100
+    // 动态输入框高度（默认 100 pt，可在 70-240 pt 之间拖拽调节，双击复位）
+    @State private var inputHeight: CGFloat
     @State private var isHoveringHandle: Bool = false
-    @State private var isCursorPushed: Bool = false
+
+    init(
+        viewModel: PanelViewModel,
+        onOpenSettings: @escaping () -> Void,
+        onOpenHistory: @escaping () -> Void,
+        initialInputHeight: CGFloat = V5.Panel.inputDefault,
+        autoFocusInput: Bool = true,
+        characterCountOverride: Int? = nil
+    ) {
+        self.viewModel = viewModel
+        self.onOpenSettings = onOpenSettings
+        self.onOpenHistory = onOpenHistory
+        self.autoFocusInput = autoFocusInput
+        self.characterCountOverride = characterCountOverride
+        _inputHeight = State(initialValue: PanelInputHeightMath.clamped(initialInputHeight))
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: V5.compactSpacing) {
             inputArea
             resizeHandle
             actionRow
-            // 结果区两块：直译、转写，平分剩余高度并独立滚动与复制
             ResultSection(
                 title: "直译",
                 icon: "character.book.closed",
@@ -27,6 +43,7 @@ struct TranslatePanelView: View {
                 text: viewModel.literalResult,
                 onCopy: { viewModel.copy(viewModel.literalResult) }
             )
+            .frame(height: resultSectionHeight)
             ResultSection(
                 title: "转写",
                 icon: "sparkles",
@@ -34,26 +51,28 @@ struct TranslatePanelView: View {
                 text: viewModel.rewriteResult,
                 onCopy: { viewModel.copy(viewModel.rewriteResult) }
             )
+            .frame(height: resultSectionHeight)
             footerBar
         }
-        .padding(14)
-        .frame(width: 560, height: 600)
-        .background(VisualEffectBackground())
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        .padding(V5.windowPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            ZStack {
+                VisualEffectBackground()
+                RoundedRectangle(cornerRadius: V5.windowCornerRadius, style: .continuous)
+                    .fill(colorScheme == .dark ? Color.black.opacity(0.72) : Color.white.opacity(0.14))
+            }
         )
-        .onAppear { focusInput() }
-        .onDisappear {
-            setResizeCursor(false)
-            isHoveringHandle = false
-        }
-        // 每次面板呼出重新聚焦输入框
+        .clipShape(RoundedRectangle(cornerRadius: V5.windowCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: V5.windowCornerRadius, style: .continuous)
+                .strokeBorder(V5.cardBorder, lineWidth: 1)
+        )
+        .onAppear { if autoFocusInput { focusInput() } }
+        .onDisappear { isHoveringHandle = false }
         .onReceive(NotificationCenter.default.publisher(for: .panelDidShow)) { _ in
-            focusInput()
+            if autoFocusInput { focusInput() }
         }
-        // 局部快捷键支持：Cmd+Shift+1 复制直译，Cmd+Shift+2 复制转写
         .background(
             Button("") { viewModel.copy(viewModel.literalResult) }
                 .keyboardShortcut("1", modifiers: [.command, .shift])
@@ -64,114 +83,99 @@ struct TranslatePanelView: View {
                 .keyboardShortcut("2", modifiers: [.command, .shift])
                 .opacity(0)
         )
+        .background(
+            Group {
+                if viewModel.isTranslating {
+                    Button("") { viewModel.stopTranslate() }
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .opacity(0)
+                }
+            }
+        )
     }
 
-    // 输入区卡片：动态高度调节，文本区与右侧按钮/下方计数完全避让，防止遮挡
+    // 输入区卡片：动态高度调节，文本区与按钮/计数互不遮挡
     private var inputArea: some View {
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+            RoundedRectangle(cornerRadius: V5.cardCornerRadius, style: .continuous)
+                .fill(V5.cardFill)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: V5.cardCornerRadius, style: .continuous)
+                        .strokeBorder(V5.cardBorder, lineWidth: 1)
                 )
 
             TextEditor(text: $viewModel.inputText)
-                .font(.system(size: 14))
+                .font(.system(size: V5.bodyFontSize))
                 .scrollContentBackground(.hidden)
-                .padding(.leading, 8)
-                .padding(.top, 6)
-                .padding(.trailing, 28)  // 右侧预留 28 pt 避让清空按钮
-                .padding(.bottom, 22)   // 底部预留 22 pt 避让字符统计
+                .scrollIndicators(.hidden)
+                .background(Color.clear)
+                .background(TextEditorScrollConfigurator())
+                .padding(.leading, 11)
+                .padding(.top, 17)
+                .padding(.trailing, 30)
+                .padding(.bottom, 22)
                 .focused($inputFocused)
 
             if viewModel.inputText.isEmpty {
-                Text("输入要翻译的文字，Cmd+Return 开始翻译")
-                    .font(.system(size: 14))
+                Text("输入待翻译文字，按 \u{2318}\u{21A9} 开始")
+                    .font(.system(size: V5.bodyFontSize))
                     .foregroundColor(.secondary.opacity(0.7))
-                    .padding(.leading, 13)
-                    .padding(.top, 7)
-                    .padding(.trailing, 28)
+                    .padding(.leading, 16)
+                    .padding(.top, 15)
+                    .padding(.trailing, 30)
                     .allowsHitTesting(false)
             }
 
-            // 右上角：一键清空按钮
             if !viewModel.inputText.isEmpty {
                 Button(action: { viewModel.inputText = "" }) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.secondary)
-                        .font(.system(size: 13))
+                        .font(.system(size: V5.titleFontSize))
                 }
                 .buttonStyle(.plain)
+                .focusEffectDisabled()
                 .disabled(viewModel.isTranslating)
                 .help("清空输入")
-                .padding(8)
+                .padding(.top, 14)
+                .padding(.trailing, 17)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
 
-            // 右下角：字符统计
             if !viewModel.inputText.isEmpty {
-                Text("\(viewModel.inputText.count) 字符")
-                    .font(.system(size: 11))
+                Text("\(displayedCharacterCount) 字符")
+                    .font(.system(size: V5.captionFontSize))
                     .foregroundColor(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
+                    .padding(.bottom, 6)
+                    .padding(.trailing, 14)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }
         }
         .frame(height: inputHeight)
     }
 
-    // 输入框下拉放大调节手柄（详细设计 13.4）
+    private var displayedCharacterCount: Int {
+        characterCountOverride ?? viewModel.inputText.count
+    }
+
+    private var resultSectionHeight: CGFloat {
+        PanelInputHeightMath.resultSectionHeight(inputHeight: inputHeight)
+    }
+
+    // 输入框高度调节手柄（AppKit 原生视图，mouseDownCanMoveWindow=false）
     private var resizeHandle: some View {
-        ZStack {
-            Rectangle()
-                .fill(Color.clear)
-                .frame(height: 10)
-                .contentShape(Rectangle())
-
-            Capsule()
-                .fill(Color.secondary.opacity(isHoveringHandle ? 0.6 : 0.25))
-                .frame(width: 36, height: 4)
-        }
-        .frame(maxWidth: .infinity)
-        .onHover { hovering in
-            isHoveringHandle = hovering
-            setResizeCursor(hovering)
-        }
-        .gesture(
-            DragGesture(minimumDistance: 1)
-                .onChanged { value in
-                    let newHeight = dragStartHeight + value.translation.height
-                    inputHeight = min(240, max(70, newHeight))
-                }
-                .onEnded { _ in
-                    dragStartHeight = inputHeight
-                }
+        ResizeHandleRepresentable(
+            inputHeight: $inputHeight,
+            isHovering: $isHoveringHandle
         )
-        .onTapGesture(count: 2) {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                inputHeight = 100
-                dragStartHeight = 100
-            }
-        }
+        .frame(height: V5.Panel.handleHeight)
+        .frame(maxWidth: .infinity)
     }
 
-    private func setResizeCursor(_ active: Bool) {
-        if active && !isCursorPushed {
-            NSCursor.resizeUpDown.push()
-            isCursorPushed = true
-        } else if !active && isCursorPushed {
-            NSCursor.pop()
-            isCursorPushed = false
-        }
-    }
-
-    // 操作栏：高度 28 pt，生成中切换为警示样式「停止」按钮
+    // 操作栏：28 pt 圆角容器，空闲态蓝色翻译按钮，生成中显示停止按钮
     private var actionRow: some View {
         HStack(alignment: .center) {
             if viewModel.isTranslating {
-                HStack(spacing: 6) {
+                HStack(spacing: V5.compactSpacing) {
                     ProgressView()
                         .controlSize(.small)
                     Text("正在生成…")
@@ -187,40 +191,63 @@ struct TranslatePanelView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "stop.fill")
                             .font(.system(size: 10))
+                            .foregroundColor(V5.errorRed)
                         Text("停止")
                             .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(V5.errorRed)
                     }
-                    .frame(minWidth: 60, minHeight: 22)
+                    .frame(width: 86, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: V5.controlCornerRadius, style: .continuous)
+                            .fill(V5.errorRed.opacity(0.12))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: V5.controlCornerRadius, style: .continuous)
+                            .strokeBorder(V5.errorRed.opacity(0.9), lineWidth: 1)
+                    )
                 }
-                .buttonStyle(.bordered)
-                .tint(.red)
-                .keyboardShortcut(.return, modifiers: .command)
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
             } else {
                 Button(action: { viewModel.startTranslate() }) {
                     HStack(spacing: 4) {
                         Text("翻译")
                             .font(.system(size: 12, weight: .medium))
-                        Text("⌘↩")
+                            .foregroundColor(.white)
+                        Text("\u{2318}\u{21A9}")
                             .font(.system(size: 10))
-                            .foregroundColor(.white.opacity(0.8))
+                            .foregroundColor(.white)
                     }
-                    .frame(minWidth: 60, minHeight: 22)
+                    .frame(width: 86, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: V5.controlCornerRadius, style: .continuous)
+                            .fill(V5.accentBlue)
+                    )
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
                 .keyboardShortcut(.return, modifiers: .command)
             }
         }
-        .frame(height: 28)
+        .padding(.horizontal, 8)
+        .frame(height: V5.Panel.actionRowHeight)
+        .background(
+            RoundedRectangle(cornerRadius: V5.controlCornerRadius, style: .continuous)
+                .fill(V5.cardFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: V5.controlCornerRadius, style: .continuous)
+                .strokeBorder(V5.cardBorder, lineWidth: 1)
+        )
     }
 
-    // 底部辅助栏：高度 20 pt，快捷键提示与设置/历史直达入口
+    // 底部辅助栏：20 pt，快捷键提示与设置/历史入口
     private var footerBar: some View {
         HStack(alignment: .center) {
-            Text("⌘↩ 翻译 · Esc 隐藏")
-                .font(.system(size: 11))
+            Text("\u{2318}\u{21A9} 翻译 \u{00B7} Esc 隐藏")
+                .font(.system(size: V5.captionFontSize))
                 .foregroundColor(.secondary.opacity(0.8))
             Spacer()
-            HStack(spacing: 12) {
+            HStack(spacing: V5.sectionSpacing) {
                 Button(action: onOpenSettings) {
                     Image(systemName: "gearshape")
                         .font(.system(size: 12))
@@ -238,7 +265,7 @@ struct TranslatePanelView: View {
                 .help("历史记录")
             }
         }
-        .frame(height: 20)
+        .frame(height: V5.Panel.footerHeight)
         .padding(.horizontal, 2)
     }
 
@@ -247,7 +274,7 @@ struct TranslatePanelView: View {
     }
 }
 
-// 单段结果区：小标题 + 局部独立状态 + 复制反馈按钮 + 独立滚动文字卡片（详细设计 13.1）
+// 单段结果区：标题栏 + 分隔线 + 可滚动正文（v5 五态完整实现）
 private struct ResultSection: View {
     let title: String
     let icon: String
@@ -259,47 +286,58 @@ private struct ResultSection: View {
     @State private var copyResetTask: Task<Void, Never>?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // 头部栏：图标 + 标题 + 局部状态 + 复制按钮
-            HStack(alignment: .center, spacing: 6) {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: V5.compactSpacing) {
                 Image(systemName: icon)
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: V5.titleFontSize, weight: .semibold))
                 statusView
                 Spacer()
                 copyButton
             }
-            .frame(height: 22)
+            .padding(.horizontal, 10)
+            .frame(height: V5.Panel.titleBarHeight)
 
-            // 正文卡片容器
+            Divider()
+                .padding(.horizontal, 8)
+
             ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.4))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
-                    )
-
                 if text.isEmpty && state == .idle {
                     Text("等待输入后翻译…")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary.opacity(0.5))
+                        .font(.system(size: V5.settingsBodyFontSize))
+                        .foregroundColor(.secondary.opacity(0.78))
+                        .padding(10)
+                } else if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                          case .failed = state {
+                    // v5 局部失败态：正文区显示引导文案
+                    Text("当前任务部分失败。按 \u{2318}\u{21A9} 重新执行完整翻译。")
+                        .font(.system(size: V5.bodyFontSize))
+                        .foregroundColor(.secondary)
                         .padding(10)
                 } else {
                     ScrollView {
                         Text(text)
-                            .font(.system(size: 14))
+                            .font(.system(size: V5.bodyFontSize))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(10)
                     }
                 }
             }
-            .frame(maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: V5.cardCornerRadius, style: .continuous)
+                .fill(V5.cardFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: V5.cardCornerRadius, style: .continuous)
+                .strokeBorder(V5.cardBorder, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: V5.cardCornerRadius, style: .continuous))
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     @ViewBuilder private var statusView: some View {
@@ -326,28 +364,18 @@ private struct ResultSection: View {
         }
     }
 
+    // 紧凑方形图标按钮（22x22 pt），复制后原位切换绿色 checkmark 1.5 秒
     private var copyButton: some View {
         Button(action: performCopy) {
-            HStack(spacing: 3) {
-                if showCopied {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 11))
-                        .foregroundColor(.green)
-                    Text("已复制")
-                        .font(.system(size: 11))
-                        .foregroundColor(.green)
-                } else {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 11))
-                    Text("复制")
-                        .font(.system(size: 11))
-                }
-            }
-            .frame(minWidth: 48)
+            Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 12))
+                .foregroundColor(showCopied ? V5.successGreen : .secondary)
+                .frame(width: V5.Panel.copyIconSize, height: V5.Panel.copyIconSize)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        .buttonStyle(.plain)
         .disabled(text.isEmpty)
+        .help(showCopied ? "已复制" : "复制\(title)")
+        .accessibilityLabel("复制\(title)")
     }
 
     private func performCopy() {
@@ -355,13 +383,17 @@ private struct ResultSection: View {
         showCopied = true
         copyResetTask?.cancel()
         copyResetTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            do {
+                try await Task.sleep(nanoseconds: 1_500_000_000)
+            } catch {
+                return
+            }
             showCopied = false
         }
     }
 }
 
-// macOS 原生毛玻璃背景（详细设计 13.1：NSVisualEffectView，材质为 .popover，blendingMode 为 .behindWindow）
+// macOS 原生毛玻璃背景（详细设计 13.1）
 private struct VisualEffectBackground: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
@@ -372,4 +404,164 @@ private struct VisualEffectBackground: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
+// MARK: - 输入框高度调节手柄（AppKit 原生实现）
+
+private struct ResizeHandleRepresentable: NSViewRepresentable {
+    @Binding var inputHeight: CGFloat
+    @Binding var isHovering: Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func makeNSView(context: Context) -> ResizeHandleNSView {
+        ResizeHandleNSView(coordinator: context.coordinator, height: inputHeight)
+    }
+
+    func updateNSView(_ nsView: ResizeHandleNSView, context: Context) {
+        context.coordinator.parent = self
+        nsView.syncFromSwiftUI(height: inputHeight, hovering: isHovering)
+    }
+
+    final class Coordinator {
+        var parent: ResizeHandleRepresentable
+        init(parent: ResizeHandleRepresentable) { self.parent = parent }
+
+        func updateHeight(_ h: CGFloat) { parent.inputHeight = h }
+        func updateHover(_ v: Bool) { parent.isHovering = v }
+
+        func resetHeight() {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                parent.inputHeight = V5.Panel.inputDefault
+            }
+        }
+    }
+}
+
+private final class ResizeHandleNSView: NSView {
+    private let coordinator: ResizeHandleRepresentable.Coordinator
+    private let capsuleLayer = CAShapeLayer()
+    private var localTrackingArea: NSTrackingArea?
+
+    private var isDragging = false
+    private var dragStartY: CGFloat = 0
+    private var dragBaseHeight: CGFloat = V5.Panel.inputDefault
+    private var currentHeight: CGFloat = V5.Panel.inputDefault
+
+    // 阻止窗口背景拖动吞掉本视图的鼠标事件
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    init(coordinator: ResizeHandleRepresentable.Coordinator, height: CGFloat) {
+        self.coordinator = coordinator
+        self.currentHeight = height
+        self.dragBaseHeight = height
+        super.init(frame: .zero)
+        wantsLayer = true
+        capsuleLayer.fillColor = NSColor.secondaryLabelColor.withAlphaComponent(0.25).cgColor
+        layer?.addSublayer(capsuleLayer)
+
+        setAccessibilityRole(.slider)
+        setAccessibilityLabel("输入框高度调节手柄")
+        setAccessibilityMinValue(V5.Panel.inputMin)
+        setAccessibilityMaxValue(V5.Panel.inputMax)
+        setAccessibilityValue("当前高度 \(Int(height)) pt")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    func syncFromSwiftUI(height: CGFloat, hovering: Bool) {
+        currentHeight = height
+        if !isDragging { dragBaseHeight = height }
+        setAccessibilityValue("当前高度 \(Int(height)) pt")
+        let alpha: CGFloat = hovering ? 0.6 : 0.25
+        capsuleLayer.fillColor = NSColor.secondaryLabelColor.withAlphaComponent(alpha).cgColor
+    }
+
+    // MARK: - 布局：36x4 胶囊居中
+
+    override func layout() {
+        super.layout()
+        let w = V5.Panel.handleCapsuleWidth
+        let h = V5.Panel.handleCapsuleHeight
+        let x = (bounds.width - w) / 2
+        let y = (bounds.height - h) / 2
+        capsuleLayer.path = CGPath(
+            roundedRect: CGRect(x: x, y: y, width: w, height: h),
+            cornerWidth: h / 2, cornerHeight: h / 2, transform: nil
+        )
+    }
+
+    // MARK: - 鼠标追踪
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let old = localTrackingArea { removeTrackingArea(old) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow],
+            owner: self, userInfo: nil
+        )
+        addTrackingArea(area)
+        localTrackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        coordinator.updateHover(true)
+        NSCursor.resizeUpDown.set()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        coordinator.updateHover(false)
+        NSCursor.arrow.set()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { coordinator.updateHover(false) }
+    }
+
+    // MARK: - 拖拽与双击
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 {
+            coordinator.resetHeight()
+            return
+        }
+        isDragging = true
+        dragStartY = event.locationInWindow.y
+        dragBaseHeight = currentHeight
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let delta = event.locationInWindow.y - dragStartY
+        let newHeight = PanelInputHeightMath.heightAfterDrag(baseHeight: dragBaseHeight, deltaY: delta)
+        currentHeight = newHeight
+        coordinator.updateHeight(newHeight)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        isDragging = false
+        dragBaseHeight = currentHeight
+    }
+
+    // MARK: - VoiceOver 增减（步长 10 pt）
+
+    override func accessibilityPerformIncrement() -> Bool {
+        let h = PanelInputHeightMath.clamped(currentHeight + 10)
+        currentHeight = h
+        dragBaseHeight = h
+        coordinator.updateHeight(h)
+        return true
+    }
+
+    override func accessibilityPerformDecrement() -> Bool {
+        let h = PanelInputHeightMath.clamped(currentHeight - 10)
+        currentHeight = h
+        dragBaseHeight = h
+        coordinator.updateHeight(h)
+        return true
+    }
 }

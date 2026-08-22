@@ -570,8 +570,20 @@ struct HistoryRecord: Codable, Identifiable {
 - **输入框下拉放大（TranslatePanelView）**：
   - 默认高度 `100 pt`，动态拉伸范围 `[70 pt, 240 pt]`；
   - 位于输入卡片底部中心配备 `36 × 4 pt` 胶囊拖拽手柄（Resize Handle），悬停高亮并展示垂直调整光标（`.resizeUpDown`）；
-  - 支持 `DragGesture` 实时拖拽拉大/缩小；双击手柄快速弹性动画复位至默认 `100 pt`；
+  - 手柄使用 AppKit 原生 `NSView`（通过 `NSViewRepresentable` 桥接），override `mouseDownCanMoveWindow` 返回 `false`，防止 `FloatingPanel.isMovableByWindowBackground = true` 时窗口背景拖动吞掉手柄的鼠标事件；面板其余背景区域仍可正常拖动窗口；
+  - 支持 `mouseDown`/`mouseDragged`/`mouseUp` 实时拖拽拉大/缩小；双击手柄快速弹性动画复位至默认 `100 pt`；
   - 布局弹性分配：输入框变高时，下方双结果卡平分剩余高度并保持内部 `ScrollView` 平滑滚动，面板总高严格维持 `600 pt`。
 - **菜单栏状态图标精细化（AppDelegate）**：
-  - 选用 Apple 标准翻译符号 `translate`，配置 `NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)`；
+  - 选用 `translate`（一级入口优先表达翻译语义），配置 `NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)`；
+  - 保留 `character.bubble` 回退（兼容旧系统无 `translate` 的情况）；`sparkles.rectangle.stack` 作为已评估但未采用的候选方案。
   - 启用 `isTemplate = true`，自动适配深浅色桌面壁纸及点击高亮。
+
+### 13.5 跨窗口视觉一致性规则（增量 v1.5）
+
+以下视觉语言在翻译面板、设置窗口和历史窗口中保持统一（详见 `docs/06-ui-optimization-proposal.md` v4.0 第 3.7 节）：
+
+1. 外层卡片容器统一使用圆角 8–10 pt、`controlBackgroundColor` 半透明填充与 `Color.primary.opacity(0.06–0.08)` 描边。
+2. 标题栏统一使用 SF Symbols 单色图标（12 pt）+ 标题（13 pt semibold）+ 操作按钮靠右。
+3. 复制按钮统一采用紧凑方形图标按钮（`doc.on.doc`），复制后原位切换绿色 `checkmark`，不显示"已复制"文字，1.5 秒后还原；tooltip 在未复制时显示"复制{标题}"，复制后显示"已复制"。本条规则覆盖 13.1 等早期章节中关于复制按钮文案变为"已复制"的旧描述，以紧凑图标为准。
+4. 状态色统一使用完成绿、停止橙、失败红，状态点附带 VoiceOver 无障碍标签。
+5. 拖拽手柄提供无障碍标签、当前高度值和可调整动作（AXAction），调整步长 10 pt。

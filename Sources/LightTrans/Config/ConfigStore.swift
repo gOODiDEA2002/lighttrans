@@ -87,4 +87,25 @@ final class ConfigStore: ObservableObject {
     func saveAPIKey(_ key: String) throws {
         try KeychainHelper.save(key, service: Self.keychainService, account: Self.keychainAccount)
     }
+
+    func deleteAPIKey() {
+        KeychainHelper.delete(service: Self.keychainService, account: Self.keychainAccount)
+    }
+
+    #if DEBUG
+    // UI 截图验收专用：隔离到临时 defaults，避免读写真实持久化
+    static func uiAcceptanceMock() -> ConfigStore {
+        let suiteName = "LightTrans.UIAcceptance.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            return ConfigStore(defaults: .standard)
+        }
+        defaults.set("https://api.openai.com/v1", forKey: "apiBaseURL")
+        defaults.set("deepseek-chat", forKey: "modelName")
+        defaults.set(2000, forKey: "maxTokens")
+        defaults.set(true, forKey: "historyEnabled")
+        defaults.set("", forKey: "literalPromptTemplate")
+        defaults.set("", forKey: "promptTemplate")
+        return ConfigStore(defaults: defaults)
+    }
+    #endif
 }

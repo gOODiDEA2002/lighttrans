@@ -1,14 +1,28 @@
 import SwiftUI
 import AppKit
 
-// 历史记录窗口（详细设计 13.3、UI 方案 v3.0）
+// 历史记录窗口（详细设计 13.3、v5 视觉基准）
 struct HistoryWindowView: View {
     @State private var records: [HistoryRecord] = []
     @State private var pendingDevices = 0
     @State private var filter = ""
     @State private var selectedID: HistoryRecord.ID?
+    private let isFixtureMode: Bool
 
-    // 关键字对原文与译文（含直译、转写、老记录单段）做包含匹配
+    init() {
+        isFixtureMode = false
+    }
+
+    #if DEBUG
+    init(uiAcceptanceSnapshot: UIAcceptanceHistorySnapshot) {
+        _records = State(initialValue: uiAcceptanceSnapshot.records)
+        _pendingDevices = State(initialValue: uiAcceptanceSnapshot.pendingDevices)
+        _filter = State(initialValue: uiAcceptanceSnapshot.filter)
+        _selectedID = State(initialValue: uiAcceptanceSnapshot.selectedID)
+        isFixtureMode = true
+    }
+    #endif
+
     private var filtered: [HistoryRecord] {
         guard !filter.isEmpty else { return records }
         let key = filter.lowercased()
@@ -23,191 +37,276 @@ struct HistoryWindowView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-            Divider()
-            if pendingDevices > 0 {
-                Text("另有 \(pendingDevices) 台设备的记录待从 iCloud 下载")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-            }
-            HSplitView {
-                listView
-                    .frame(minWidth: 240, idealWidth: 270, maxWidth: 340)
-                detailView
-                    .frame(minWidth: 340, maxWidth: .infinity)
-            }
-        }
-        .frame(minWidth: 680, minHeight: 480)
-        .onAppear(perform: reload)
-        .onReceive(NotificationCenter.default.publisher(for: .historyReload)) { _ in reload() }
-    }
-
-    // MARK: - 顶部工具栏（含搜索框、匹配计数与刷新按钮）
-
-    private var toolbar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundColor(.secondary)
-            TextField("搜索历史记录…", text: $filter)
-                .textFieldStyle(.plain)
-                .onChange(of: filter) { _, _ in
-                    syncSelectionAfterFilter()
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                searchHeader
+                if pendingDevices > 0 {
+                    Text("另有 \(pendingDevices) 台设备的记录待从 iCloud 下载")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, V5.compactSpacing)
                 }
-
-            Text(filter.isEmpty ? "共 \(records.count) 条" : "匹配 \(filtered.count) 条")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            Button(action: reload) {
-                Image(systemName: "arrow.clockwise")
+                listView
             }
-            .buttonStyle(.borderless)
-            .help("刷新")
+            .frame(width: V5.History.leftContentWidth)
+
+            Rectangle()
+                .fill(V5.dividerColor)
+                .frame(width: V5.History.dividerWidth)
+
+            detailView
+                .frame(minWidth: V5.History.rightMinWidth, maxWidth: .infinity)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            guard !isFixtureMode else { return }
+            reload()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .historyReload)) { _ in
+            guard !isFixtureMode else { return }
+            reload()
+        }
     }
 
-    // MARK: - 左侧列表区（微型语义色点 + 2 行摘要 + 低对比度设备次要文本）
+    // MARK: - 两行搜索头部（v5：76 pt）
 
-    private var listView: some View {
-        List(filtered, selection: $selectedID) { record in
-            HStack(alignment: .top, spacing: 8) {
-                Circle()
-                    .fill(statusDotColor(for: record))
-                    .frame(width: 6, height: 6)
-                    .padding(.top, 5)
-                    .accessibilityLabel(statusAccessibilityLabel(for: record))
+    private var searchHeader: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: V5.compactSpacing) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 12))
 
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack {
-                        Text(Self.shortTime(record.time))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text(record.device)
-                            .font(.caption2)
-                            .foregroundColor(.secondary.opacity(0.8))
-                            .lineLimit(1)
+                TextField("搜索历史记录\u{2026}", text: $filter)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: V5.settingsBodyFontSize))
+                    .onChange(of: filter) { _, _ in
+                        syncSelectionAfterFilter()
                     }
 
-                    Text(record.input)
-                        .font(.system(size: 13))
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                if !filter.isEmpty {
+                    Button(action: {
+                        filter = ""
+                        syncSelectionAfterFilter()
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .help("清空搜索")
                 }
             }
-            .padding(.vertical, 2)
+            .padding(.horizontal, 9)
+            .frame(height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: V5.controlCornerRadius, style: .continuous)
+                    .strokeBorder(V5.cardBorder, lineWidth: 1)
+            )
+
+            HStack {
+                Text(filter.isEmpty
+                     ? "共 \(records.count) 条记录"
+                     : "找到 \(filtered.count) 条记录")
+                    .font(.system(size: V5.captionFontSize))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button(action: reload) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("刷新")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 11)
+        .padding(.bottom, 11)
+        .frame(height: V5.History.searchHeaderHeight)
+    }
+
+    // MARK: - 左侧列表（v5：64 pt 行高，白色 10% 选中背景 + 6 pt 圆角）
+    // 使用 ScrollView + LazyVStack 精确控制行高和选中样式，
+    // 替换原生 List/sidebar 的强蓝色选中态
+
+    private var listView: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(filtered) { record in
+                    historyRow(for: record)
+                        .frame(height: V5.History.listRowHeight)
+                        .contentShape(Rectangle())
+                        .background(
+                            RoundedRectangle(
+                                cornerRadius: V5.History.selectedRowCornerRadius
+                            )
+                            .fill(selectedID == record.id
+                                  ? Color.white.opacity(V5.History.selectedRowOpacity)
+                                  : Color.clear)
+                            .padding(.horizontal, 9)
+                        )
+                        .onTapGesture { selectedID = record.id }
+                        .accessibilityAddTraits(
+                            selectedID == record.id ? .isSelected : []
+                        )
+                }
+            }
+            .padding(.top, 8)
         }
     }
 
-    // MARK: - 右侧详情区（元数据 2 行网格 + 3 张独立正文卡片）
+    private func historyRow(for record: HistoryRecord) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            Circle()
+                .fill(statusDotColor(for: record))
+                .frame(width: 6, height: 6)
+                .accessibilityLabel(statusAccessibilityLabel(for: record))
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(record.input)
+                        .font(.system(size: V5.titleFontSize, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer()
+                    Text(Self.shortTime(record.time))
+                        .font(.system(size: V5.captionFontSize))
+                        .foregroundColor(.secondary)
+                        .fixedSize()
+                }
+
+                HStack {
+                    Text(preferredTranslationSummary(for: record))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
+                    Spacer()
+                    Text(record.device)
+                        .font(.system(size: V5.captionFontSize))
+                        .foregroundColor(.secondary.opacity(0.7))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: 80)
+                }
+            }
+        }
+        .padding(.horizontal, 17)
+    }
+
+    private func preferredTranslationSummary(for record: HistoryRecord) -> String {
+        let candidates = [record.literalOutput, record.output, record.rewriteOutput]
+        for candidate in candidates {
+            if let text = candidate, !text.isEmpty {
+                return text.components(separatedBy: .newlines).first ?? text
+            }
+        }
+        return "暂无译文"
+    }
+
+    // MARK: - 右侧详情区（v5：元数据 2 行 + 3 张正文卡片，带文字复制按钮）
 
     @ViewBuilder private var detailView: some View {
         if let record = selectedRecord {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    // 元数据 2 行网格卡片
-                    metadataGrid(for: record)
+            VStack(alignment: .leading, spacing: V5.sectionSpacing) {
+                metadataCard(for: record)
+                    .frame(height: 72)
 
-                    // 原文卡片
-                    DetailCard(title: "原文", icon: "text.quote", content: record.input)
+                HistoryDetailCard(title: "原文", icon: "text.quote", content: record.input)
+                    .frame(height: 104)
 
-                    // 直译与转写卡片（v1.1 双段展示；老记录单段降级展示）
-                    if record.literalOutput != nil || record.rewriteOutput != nil {
-                        DetailCard(
-                            title: "直译",
-                            icon: "character.book.closed",
-                            content: displayText(record.literalOutput)
-                        )
-                        DetailCard(
-                            title: "转写",
-                            icon: "sparkles",
-                            content: displayText(record.rewriteOutput)
-                        )
-                    } else {
-                        DetailCard(
-                            title: "译文",
-                            icon: "character.book.closed",
-                            content: displayText(record.output)
-                        )
-                    }
+                if record.literalOutput != nil || record.rewriteOutput != nil {
+                    HistoryDetailCard(
+                        title: "直译",
+                        icon: "character.book.closed",
+                        content: displayText(record.literalOutput)
+                    )
+                    .frame(height: 104)
+                    HistoryDetailCard(
+                        title: "转写",
+                        icon: "sparkles",
+                        content: displayText(record.rewriteOutput)
+                    )
+                    .frame(height: 104)
+                } else {
+                    HistoryDetailCard(
+                        title: "译文",
+                        icon: "character.book.closed",
+                        content: displayText(record.output)
+                    )
+                    .frame(height: 104)
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .padding(V5.contentPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else {
-            // 空状态占位
             VStack(spacing: 10) {
-                Image(systemName: "tray")
+                Image(systemName: emptyStateIcon)
                     .font(.system(size: 36))
                     .foregroundColor(.secondary.opacity(0.4))
-                Text(filtered.isEmpty ? "无匹配的历史记录" : "选择左侧一条记录查看详情")
-                    .font(.system(size: 13))
+                Text(emptyStateMessage)
+                    .font(.system(size: V5.settingsBodyFontSize))
                     .foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    // MARK: - 元数据 2 行网格
+    private var emptyStateIcon: String {
+        if records.isEmpty { return "tray" }
+        if filtered.isEmpty { return "magnifyingglass" }
+        return "doc.text.magnifyingglass"
+    }
 
-    private func metadataGrid(for record: HistoryRecord) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Row 1: 时间 + 状态 Badge
+    private var emptyStateMessage: String {
+        if records.isEmpty { return "暂无历史记录" }
+        if filtered.isEmpty { return "无匹配记录" }
+        return "选择左侧记录查看详情"
+    }
+
+    // MARK: - 元数据卡片（v5：2 行，时间+状态 / 设备+模型）
+
+    private func metadataCard(for record: HistoryRecord) -> some View {
+        VStack(alignment: .leading, spacing: V5.compactSpacing) {
             HStack(alignment: .center) {
-                HStack(spacing: 4) {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                    Text(Self.fullTime(record.time))
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                }
+                Text(Self.fullTime(record.time))
+                    .font(.system(size: V5.settingsBodyFontSize))
+                    .foregroundColor(.secondary)
                 Spacer()
                 statusBadge(for: record)
             }
 
-            // Row 2: 设备 + 模型名（均支持长文本尾部截断与 hover tooltip）
-            HStack(alignment: .center, spacing: 12) {
-                HStack(spacing: 4) {
-                    Image(systemName: "laptopcomputer")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                    Text(record.device)
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .help(record.device)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(alignment: .center, spacing: V5.sectionSpacing) {
+                Text(record.device)
+                    .font(.system(size: V5.settingsBodyFontSize))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(record.device)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                HStack(spacing: 4) {
-                    Image(systemName: "cpu")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                    Text(record.model)
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .help(record.model)
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                Text(record.model)
+                    .font(.system(size: V5.settingsBodyFontSize))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(record.model)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
-        .padding(10)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(V5.sectionSpacing)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: V5.cardCornerRadius, style: .continuous)
+                .fill(V5.cardFill)
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+            RoundedRectangle(cornerRadius: V5.cardCornerRadius, style: .continuous)
+                .strokeBorder(V5.cardBorder, lineWidth: 1)
         )
     }
 
@@ -215,32 +314,32 @@ struct HistoryWindowView: View {
         switch record.status {
         case "done":
             Text("完成")
-                .font(.caption2)
-                .foregroundColor(.green)
+                .font(.system(size: V5.captionFontSize))
+                .foregroundColor(V5.successGreen)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(Color.green.opacity(0.12))
+                .background(V5.successGreen.opacity(0.12))
                 .clipShape(Capsule())
         case "stopped":
             Text("已中途停止")
-                .font(.caption2)
-                .foregroundColor(.orange)
+                .font(.system(size: V5.captionFontSize))
+                .foregroundColor(V5.warningOrange)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(Color.orange.opacity(0.12))
+                .background(V5.warningOrange.opacity(0.12))
                 .clipShape(Capsule())
         case "failed":
             Text(record.error.map { "失败：\($0)" } ?? "失败")
-                .font(.caption2)
-                .foregroundColor(.red)
+                .font(.system(size: V5.captionFontSize))
+                .foregroundColor(V5.errorRed)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(Color.red.opacity(0.12))
+                .background(V5.errorRed.opacity(0.12))
                 .clipShape(Capsule())
                 .lineLimit(1)
         default:
             Text(record.status)
-                .font(.caption2)
+                .font(.system(size: V5.captionFontSize))
                 .foregroundColor(.secondary)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
@@ -249,13 +348,13 @@ struct HistoryWindowView: View {
         }
     }
 
-    // MARK: - 辅助方法与状态处理
+    // MARK: - 辅助方法
 
     private func statusDotColor(for record: HistoryRecord) -> Color {
         switch record.status {
-        case "done": return .green
-        case "stopped": return .orange
-        case "failed": return .red
+        case "done": return V5.successGreen
+        case "stopped": return V5.warningOrange
+        case "failed": return V5.errorRed
         default: return .secondary
         }
     }
@@ -315,9 +414,9 @@ struct HistoryWindowView: View {
     }
 }
 
-// MARK: - 独立正文卡片组件（带 1.5 秒绿色 checkmark 复制动效）
+// MARK: - 历史详情正文卡片（v5：标题栏 + 带文字复制按钮 + 分隔线 + 正文）
 
-private struct DetailCard: View {
+private struct HistoryDetailCard: View {
     let title: String
     let icon: String
     let content: String
@@ -326,49 +425,49 @@ private struct DetailCard: View {
     @State private var copyTask: Task<Void, Never>?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Image(systemName: icon)
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: V5.titleFontSize, weight: .semibold))
                 Spacer()
                 Button(action: performCopy) {
-                    HStack(spacing: 3) {
-                        if showCopied {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 11))
-                                .foregroundColor(.green)
-                            Text("已复制")
-                                .font(.system(size: 11))
-                                .foregroundColor(.green)
-                        } else {
-                            Image(systemName: "doc.on.doc")
-                                .font(.system(size: 11))
-                            Text("复制")
-                                .font(.system(size: 11))
-                        }
-                    }
-                    .frame(minWidth: 46)
+                    Text(showCopied ? "已复制" : "复制")
+                        .font(.system(size: V5.captionFontSize))
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .tint(showCopied ? V5.successGreen : nil)
                 .disabled(content.isEmpty || content == "（无输出）")
+                .help(showCopied ? "已复制" : "复制\(title)")
+                .accessibilityLabel("复制\(title)")
             }
+            .padding(.horizontal, 10)
+            .frame(height: V5.Panel.titleBarHeight)
 
-            Text(content)
-                .font(.system(size: 13))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.4))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
-                )
+            Divider()
+                .padding(.horizontal, 8)
+
+            ScrollView {
+                Text(content)
+                    .font(.system(size: V5.settingsBodyFontSize))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+            }
+            .scrollIndicators(.hidden)
         }
+        .background(
+            RoundedRectangle(cornerRadius: V5.cardCornerRadius, style: .continuous)
+                .fill(V5.cardFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: V5.cardCornerRadius, style: .continuous)
+                .strokeBorder(V5.cardBorder, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: V5.cardCornerRadius, style: .continuous))
     }
 
     private func performCopy() {
@@ -377,7 +476,11 @@ private struct DetailCard: View {
         showCopied = true
         copyTask?.cancel()
         copyTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            do {
+                try await Task.sleep(nanoseconds: 1_500_000_000)
+            } catch {
+                return
+            }
             showCopied = false
         }
     }
