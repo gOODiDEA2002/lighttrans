@@ -32,11 +32,13 @@ final class FloatingPanel: NSPanel {
     // 失焦（点击面板外部区域）自动隐藏（FR-9）
     override func resignKey() {
         super.resignKey()
+        NSCursor.arrow.set()
         orderOut(nil)
     }
 
     // Esc 隐藏面板（FR-2）
     override func cancelOperation(_ sender: Any?) {
+        NSCursor.arrow.set()
         orderOut(nil)
     }
 }

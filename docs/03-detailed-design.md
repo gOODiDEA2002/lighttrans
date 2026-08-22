@@ -564,3 +564,14 @@ struct HistoryRecord: Codable, Identifiable {
   - `selectedRecord = filtered.first { $0.id == selectedID }`；
   - 筛选后旧选中项仍在结果中则保留；若被过滤且有其他匹配项则自动选中首项；无结果时置 `selectedID = nil` 并展示空状态占位。
 - **详情区元数据**：2 行网格排版（Row 1: 时间 + 状态 Badge；Row 2: 设备 + 模型，采用尾部截断与 hover tooltip）。原文、直译、转写分 3 卡片独立展示与复制。
+
+### 13.4 输入框可调高度与菜单栏图标规格（增量 v1.4）
+
+- **输入框下拉放大（TranslatePanelView）**：
+  - 默认高度 `100 pt`，动态拉伸范围 `[70 pt, 240 pt]`；
+  - 位于输入卡片底部中心配备 `36 × 4 pt` 胶囊拖拽手柄（Resize Handle），悬停高亮并展示垂直调整光标（`.resizeUpDown`）；
+  - 支持 `DragGesture` 实时拖拽拉大/缩小；双击手柄快速弹性动画复位至默认 `100 pt`；
+  - 布局弹性分配：输入框变高时，下方双结果卡平分剩余高度并保持内部 `ScrollView` 平滑滚动，面板总高严格维持 `600 pt`。
+- **菜单栏状态图标精细化（AppDelegate）**：
+  - 选用 Apple 标准翻译符号 `translate`，配置 `NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)`；
+  - 启用 `isTemplate = true`，自动适配深浅色桌面壁纸及点击高亮。

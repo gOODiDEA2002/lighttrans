@@ -26,11 +26,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startShortcutListener()
     }
 
-    // 创建状态栏图标：左键呼出面板，右键弹出菜单
+    // 创建状态栏图标：左键呼出面板，右键弹出菜单（详细设计 13.4）
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         guard let button = statusItem.button else { return }
-        button.image = NSImage(systemSymbolName: "character.bubble", accessibilityDescription: "轻译")
+
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        if let image = NSImage(systemSymbolName: "translate", accessibilityDescription: "轻译")?.withSymbolConfiguration(config) {
+            image.isTemplate = true
+            button.image = image
+        } else if let fallback = NSImage(systemSymbolName: "character.bubble", accessibilityDescription: "轻译")?.withSymbolConfiguration(config) {
+            fallback.isTemplate = true
+            button.image = fallback
+        }
+
         button.action = #selector(statusItemClicked(_:))
         button.target = self
         // 同时响应左右键抬起事件，在处理函数中按事件类型分流

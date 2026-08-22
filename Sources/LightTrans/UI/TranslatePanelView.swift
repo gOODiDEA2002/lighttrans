@@ -8,9 +8,16 @@ struct TranslatePanelView: View {
     let onOpenHistory: () -> Void
     @FocusState private var inputFocused: Bool
 
+    // 动态输入框高度（默认 100 pt，可在 70–240 pt 之间拖拽调节，双击复位）
+    @State private var inputHeight: CGFloat = 100
+    @State private var dragStartHeight: CGFloat = 100
+    @State private var isHoveringHandle: Bool = false
+    @State private var isCursorPushed: Bool = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             inputArea
+            resizeHandle
             actionRow
             // 结果区两块：直译、转写，平分剩余高度并独立滚动与复制
             ResultSection(
@@ -38,6 +45,10 @@ struct TranslatePanelView: View {
                 .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
         )
         .onAppear { focusInput() }
+        .onDisappear {
+            setResizeCursor(false)
+            isHoveringHandle = false
+        }
         // 每次面板呼出重新聚焦输入框
         .onReceive(NotificationCenter.default.publisher(for: .panelDidShow)) { _ in
             focusInput()
@@ -55,7 +66,7 @@ struct TranslatePanelView: View {
         )
     }
 
-    // 输入区卡片：高度 100 pt，文本区与右侧按钮/下方计数完全避让，防止遮挡
+    // 输入区卡片：动态高度调节，文本区与右侧按钮/下方计数完全避让，防止遮挡
     private var inputArea: some View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -108,7 +119,52 @@ struct TranslatePanelView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }
         }
-        .frame(height: 100)
+        .frame(height: inputHeight)
+    }
+
+    // 输入框下拉放大调节手柄（详细设计 13.4）
+    private var resizeHandle: some View {
+        ZStack {
+            Rectangle()
+                .fill(Color.clear)
+                .frame(height: 10)
+                .contentShape(Rectangle())
+
+            Capsule()
+                .fill(Color.secondary.opacity(isHoveringHandle ? 0.6 : 0.25))
+                .frame(width: 36, height: 4)
+        }
+        .frame(maxWidth: .infinity)
+        .onHover { hovering in
+            isHoveringHandle = hovering
+            setResizeCursor(hovering)
+        }
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { value in
+                    let newHeight = dragStartHeight + value.translation.height
+                    inputHeight = min(240, max(70, newHeight))
+                }
+                .onEnded { _ in
+                    dragStartHeight = inputHeight
+                }
+        )
+        .onTapGesture(count: 2) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                inputHeight = 100
+                dragStartHeight = 100
+            }
+        }
+    }
+
+    private func setResizeCursor(_ active: Bool) {
+        if active && !isCursorPushed {
+            NSCursor.resizeUpDown.push()
+            isCursorPushed = true
+        } else if !active && isCursorPushed {
+            NSCursor.pop()
+            isCursorPushed = false
+        }
     }
 
     // 操作栏：高度 28 pt，生成中切换为警示样式「停止」按钮
