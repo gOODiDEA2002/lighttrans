@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelViewModel: PanelViewModel!
     private var settingsWindow: NSWindow?
     private var historyWindow: NSWindow?
+    private var selectionServiceProvider: SelectionServiceProvider?
     private var shortcutTask: Task<Void, Never>?
 #if DEBUG
     private var uiAcceptanceWindow: NSWindow?
@@ -38,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 #endif
         setupStatusItem()
         setupPanel()
+        setupSelectionService()
         startShortcutListener()
     }
 
@@ -111,6 +113,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 togglePanel()
             }
         }
+    }
+
+    private func setupSelectionService() {
+        let provider = SelectionServiceProvider()
+        provider.onRequest = { [weak self] request in
+            self?.handleSelectionRequest(request)
+        }
+        selectionServiceProvider = provider
+        NSApp.servicesProvider = provider
+        NSUpdateDynamicServices()
+    }
+
+    private func handleSelectionRequest(_ request: SelectionRequest) {
+        panelViewModel.acceptExternalText(request.text)
+        if !panel.isVisible {
+            positionPanel()
+        }
+        panel.makeKeyAndOrderFront(nil)
+        NotificationCenter.default.post(name: .panelDidShow, object: nil)
     }
 
     // 呼出/隐藏翻译面板：已显示则隐藏，否则定位后显示并聚焦输入框

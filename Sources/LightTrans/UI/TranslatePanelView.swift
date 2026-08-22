@@ -127,7 +127,7 @@ struct TranslatePanelView: View {
             }
 
             if !viewModel.inputText.isEmpty {
-                Button(action: { viewModel.inputText = "" }) {
+                Button(action: { viewModel.clearInput() }) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.secondary)
                         .font(.system(size: V5.titleFontSize))
@@ -182,6 +182,13 @@ struct TranslatePanelView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+            } else if let selectionNotice = viewModel.selectionNotice {
+                Text(selectionNotice)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(selectionNotice)
             } else {
                 Spacer()
             }
