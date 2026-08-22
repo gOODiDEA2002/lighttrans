@@ -1,8 +1,8 @@
 # 系统设计文档
 
 项目名：mac-translator（应用显示名：轻译 / LightTrans）
-文档版本：v1.0（2026-07-13）
-关联文档：01-requirements.md（需求）、03-detailed-design.md（详细设计）
+文档版本：v1.1（2026-08-22）
+关联文档：01-requirements.md（需求）、03-detailed-design.md（详细设计）、07-selection-translation-feature-design.md（选中文字翻译功能设计）
 
 ## 1. 总体架构
 
@@ -27,6 +27,7 @@ flowchart TB
     subgraph SYS[系统集成层]
         G[全局快捷键<br>KeyboardShortcuts 库]
         H[开机自启<br>SMAppService]
+        J[选中文字服务<br>SelectionServiceProvider]
     end
     B --> D
     B --> I
@@ -37,6 +38,7 @@ flowchart TB
     C --> F
     C --> H
     G --> B
+    J --> B
     A --> B
     A --> C
     A --> C2
@@ -49,7 +51,7 @@ flowchart TB
 | 界面层 | AppDelegate、FloatingPanel、TranslatePanelView、SettingsView、HistoryWindowView | 状态栏图标与菜单、面板显示与隐藏、设置窗口、历史窗口、所有用户交互 |
 | 服务层 | TranslationService | 渲染提示词模板、构造并发送 HTTP 请求、解析流式返回、错误归类 |
 | 配置与存储层 | ConfigStore、KeychainHelper、HistoryStore | 配置项的读写与默认值；API Key 的钥匙串存取；历史记录的追加写入与多设备文件的合并读取 |
-| 系统集成层 | KeyboardShortcuts（第三方库）、SMAppService（系统框架） | 全局快捷键注册与录制；开机自启注册 |
+| 系统集成层 | KeyboardShortcuts（第三方库）、SMAppService（系统框架）、SelectionServiceProvider（AppKit Services） | 全局快捷键注册与录制；开机自启注册；接收来源应用通过 macOS 服务发送的纯文本选区 |
 
 依赖方向自上而下：界面层调用服务层与配置层；服务层调用配置层；配置层不依赖任何其他层。禁止反向调用。
 
@@ -68,6 +70,9 @@ flowchart TB
 | D-9 | 历史记录经 iCloud 云盘文件夹（`~/Library/Mobile Documents/com~apple~CloudDocs/`，即用户在访达中看到的"iCloud 云盘"）同步，不使用 CloudKit | CloudKit（苹果面向应用的云数据库服务）需要付费开发者账号的授权，本项目无开发者账号；而 iCloud 云盘文件夹对程序而言就是一个由系统自动同步的普通文件夹，写文件不需要任何账号资质 |
 | D-10 | 历史文件采用"每设备一个只追加文件（JSON Lines 格式，即每行一条独立 JSON 记录）+ 读取时合并"的结构 | 同步冲突源于多端写同一文件；改为每个文件仅有唯一写入者、且只追加不修改，冲突从结构上消除。合并排序在读取时完成，代价可忽略（个人翻译量级） |
 | D-11 | 一次翻译产出两段结果（直译 + 转写），对应两个可各自配置的提示词，两路请求并行发出、各自流式显示（增量 v1.1，详见详细设计第 11 节） | 直译看字面译法、转写做提示词工程改写，二者对同一原文互不依赖；并行发出让两段同时到达，用户无需等第一段结束。代价是单次翻译发两个请求、费用约翻倍，个人低频使用可接受 |
+| D-12 | 选中文字的第一阶段入口采用主应用声明的 macOS 服务，只接收纯文本，不返回替换内容 | macOS 服务能通过请求专用 pasteboard 传递选区，不需要模拟复制或申请「辅助功能」权限；无返回值服务也不需要来源应用等待模型结果 |
+| D-13 | 外部选区采用「最新请求优先」；已有翻译先停止并写入 `stopped` 历史，再开始新请求 | 直接取消并递增现有代次会让旧任务跳过历史写入；先完成停止状态保存可维持 FR-10 的完整记录规则 |
+| D-14 | 选区不超过 `5,000` 个 Swift `Character` 时自动执行双路翻译；超过时只载入面板 | 现有 `maxTokens` 只限制结果长度，不能阻止误选长文产生两路输入费用；字符数判断无需引入模型专属分词依赖 |
 
 ## 3. 核心数据流
 
@@ -100,6 +105,33 @@ sequenceDiagram
 
 翻译结束后（完成、手动停止或失败），面板将本次的原始输入、输出、状态等信息交给 HistoryStore 追加写入本机专属的历史文件；该文件位于 iCloud 云盘文件夹内，由系统自动同步至其他电脑。历史窗口打开时读入文件夹内全部设备的历史文件并按时间合并展示。细节见详细设计第 10 节。
 
+选中文字触发第一阶段服务时，数据流如下：
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant A as 来源应用
+    participant P as SelectionServiceProvider
+    participant D as AppDelegate
+    participant V as PanelViewModel
+    participant H as HistoryStore
+
+    U->>A: 选中文字并调用「轻译：打开面板」
+    A->>P: 请求专用 pasteboard 中的纯文本
+    P->>D: SelectionRequest(text)
+    D->>V: acceptExternalText(text)
+    alt 当前存在翻译任务
+        V->>V: 取消并等待当前双路任务结束
+        V->>H: 追加 stopped 历史
+    end
+    alt 文字不超过 5,000 字符
+        V->>V: 写入输入并启动双路翻译
+    else 文字超过 5,000 字符
+        V->>V: 只写入输入并显示费用保护提示
+    end
+    D->>D: 显示或保持翻译面板
+```
+
 ## 4. 铁律清单（硬约束，方案与编码不得违反）
 
 | 编号 | 约束 | 出处 |
@@ -113,6 +145,10 @@ sequenceDiagram
 | L-7 | 无付费开发者账号：禁止使用任何需要 iCloud 授权（entitlement）的能力（CloudKit、NSUbiquitousKeyValueStore、专属 iCloud 容器等），历史同步只允许走 iCloud 云盘文件夹的普通文件读写 | 需求文档第 2 节；苹果规定 iCloud 授权仅对付费开发者账号开放 |
 | L-8 | 历史文件单写者原则：每台设备只允许写入以本机设备标识命名的历史文件，永远只追加、不修改、不删除；禁止任何跨设备写同一文件的实现 | 决策 D-10，消除同步冲突的结构性保障 |
 | L-9 | 目标机器不保证安装完整 Xcode，构建流程不得依赖 `PreviewsMacros`。`KeyboardShortcuts 2.4.0` 固定到修订 `1aef8557`，构建前用版本匹配的补丁删除 `Recorder.swift` 中仅供开发预览的三个 `#Preview` 块，运行时代码不得改动 | 2026-07-15 清理 `.build` 后实测：未处理预览代码时 Command Line Tools 构建失败；删除预览块后干净构建通过 |
+| L-10 | FR-12 第一阶段只接收纯文本，不声明服务返回类型，不读取或修改通用剪贴板，不申请「辅助功能」权限 | FR-12、选中文字翻译功能设计 R-1、R-5 |
+| L-11 | 自动翻译上限固定为 `5,000` 个 Swift `Character`；超出时只载入原文，不截断、不自动请求 | 选中文字翻译功能设计 R-3 |
+| L-12 | 新服务请求到达时，正在进行的任务必须先以 `stopped` 状态完成历史写入；禁止直接用新代次使旧任务跳过保存 | 决策 D-13、选中文字翻译功能设计 R-4 |
+| L-13 | Terminal、iTerm2 和其他终端应用永久禁止自动粘贴和原位替换 | 选中文字翻译功能设计 R-6 |
 
 ## 5. 待验证假设（编码时对应任务先行验证，验证前不得依赖）
 
@@ -123,10 +159,18 @@ sequenceDiagram
 | A-3 | SPM 构建产物经脚本打包成 .app 后，SMAppService 开机自启注册可用（该接口对应用所在路径可能有要求） | 任务 T9 真机验证：注册后重新登录检查（结论：成立，应用置于 /Applications 后开关注册无错误、系统登录项可见、注销重登自动启动） | 退化为提示用户手动将应用加入"登录项"，开关仅作跳转引导 |
 | A-4 | 非沙盒的 ad-hoc 签名应用可直接读写 iCloud 云盘文件夹路径（`~/Library/Mobile Documents/com~apple~CloudDocs/`），至多出现一次性的系统授权弹窗 | 任务 T7 真机验证：写入后在访达"iCloud 云盘"中确认文件出现并开始同步（结论：成立，直接读写成功、无授权弹窗；退化到本机目录亦经强制走本机分支验证通过） | 改为将历史目录设为用户可选路径，由用户手动选到 iCloud 云盘内；或退化为仅存本机 |
 | A-5 | 其他设备同步来的历史文件若被系统"优化储存空间"驱逐为云端占位（本地只留 `.icloud` 占位文件），应用可触发下载或至少能识别并提示 | 任务 T7 验证：对占位文件调用 FileManager 的下载接口观察行为（结论：可测部分成立，`.icloud` 占位文件被识别、计入 pendingDevices、调用 startDownloadingUbiquitousItem 不崩溃；真实跨设备占位下载需第二台设备，标注待验，同 FR-11） | 历史窗口对未下载的设备文件显示"该设备记录待从 iCloud 下载"提示，引导用户在访达中下载 |
+| A-6 | 主应用声明的 `NSServices` 能被系统识别，并能在轻译未运行时启动 `LSUIElement` 应用 | T17 安装 Release 应用，刷新服务列表，退出轻译后从目标应用触发 | 评估独立 `.service` 包；未经设计评审不实施 |
+| A-7 | 不授予「辅助功能」权限时，目标应用可以把纯文本选区发送给第一阶段服务 | T17 在权限关闭状态下执行兼容性清单 | 对不支持的应用保留手动复制流程，不自动改用 Accessibility API |
+| A-8 | 服务请求可以在应用完成面板初始化后安全切换到主线程处理 | T17 覆盖冷启动、后台运行、面板已显示和全屏应用 | 调整服务注册时机，并使用单条冷启动请求缓存 |
+| A-9 | 多行文字、Emoji、组合字符和中英文混排可通过纯文本 pasteboard 无损传递 | T17 逐项比对来源选区与面板输入字符串 | 记录不兼容应用；禁止静默截断或替换字符 |
+| A-10 | Terminal 和 iTerm2 的只读选区能调用无返回值文本服务 | T17 真机检查服务位置和收到的文字 | 标记为不支持，保留复制后呼出面板的流程 |
+| A-11 | 当前双路任务取消后，在不递增代次的前提下等待协调任务结束，可以稳定写入一条 `stopped` 历史 | T17 增加任务生命周期测试并执行真实流式取消 | 先重构任务结束协议，不接入正式服务入口 |
 
 ## 6. 模块间接口概览
 
-- 界面层到服务层只有一个入口：`TranslationService.translate(text:) -> AsyncThrowingStream<String, Error>`（一个会陆续吐出字符串片段、可能中途报错的异步序列）。
+- 界面层到服务层只有一个模型请求入口：`TranslationService.translate(text:template:) -> AsyncThrowingStream<String, Error>`（一个会陆续吐出字符串片段、可能中途报错的异步序列）。
 - 服务层到配置层只读不写；设置窗口是唯一的配置写入方。
 - 历史读写只有两个入口：`HistoryStore.append(record:)`（翻译面板在翻译结束时调用）与 `HistoryStore.loadAll() -> [HistoryRecord]`（历史窗口打开与刷新时调用）。
 - 错误统一为 `TranslationError` 枚举，由服务层归类、界面层转为中文文案，映射表见详细设计第 7 节。历史写入失败不影响翻译主流程，仅记日志。
+- 来源应用到系统集成层只有一个入口：`SelectionServiceProvider` 从请求专用 pasteboard 读取纯文本并生成不可变请求；它不得调用模型接口或写历史。
+- `AppDelegate` 接收选区请求并交给 `PanelViewModel.acceptExternalText(_:)`；任务停止、历史保存、长文本判断和双路启动均由 ViewModel 管理。

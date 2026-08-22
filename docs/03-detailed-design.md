@@ -1,8 +1,8 @@
 # 详细设计文档
 
 项目名：mac-translator（应用显示名：轻译 / LightTrans）
-文档版本：v1.0（2026-07-13）
-关联文档：02-system-design.md（系统设计）、04-implementation-plan.md（实施计划）
+文档版本：v1.6（2026-08-22）
+关联文档：02-system-design.md（系统设计）、04-implementation-plan.md（实施计划）、07-selection-translation-feature-design.md（选中文字翻译功能设计）
 
 本文档是编码的直接依据。编码时如遇本文档未覆盖的决策点，停下补充设计并经确认后再继续，不得在代码中即兴决定。
 
@@ -15,6 +15,7 @@ mac-translator/
 │   └── LightTrans/
 │       ├── LightTransApp.swift        # 程序入口（@main），挂接 AppDelegate
 │       ├── AppDelegate.swift          # 状态栏、面板、设置窗口、快捷键监听的总管
+│       ├── SelectionServiceProvider.swift # macOS 服务：读取外部应用发送的纯文本选区
 │       ├── UI/
 │       │   ├── FloatingPanel.swift    # NSPanel 子类：浮动面板窗体
 │       │   ├── TranslatePanelView.swift  # SwiftUI：面板内容
@@ -587,3 +588,212 @@ struct HistoryRecord: Codable, Identifiable {
 3. 复制按钮统一采用紧凑方形图标按钮（`doc.on.doc`），复制后原位切换绿色 `checkmark`，不显示"已复制"文字，1.5 秒后还原；tooltip 在未复制时显示"复制{标题}"，复制后显示"已复制"。本条规则覆盖 13.1 等早期章节中关于复制按钮文案变为"已复制"的旧描述，以紧凑图标为准。
 4. 状态色统一使用完成绿、停止橙、失败红，状态点附带 VoiceOver 无障碍标签。
 5. 拖拽手柄提供无障碍标签、当前高度值和可调整动作（AXAction），调整步长 10 pt。
+
+## 14. 增量 v1.6：选中文字后打开翻译面板
+
+本节实现 FR-12 的第一阶段，只提供 `轻译：打开面板`。单路翻译并复制、原位替换、Accessibility API、浏览器扩展和终端自动输入均不在 T17 范围内。
+
+产品行为、后续阶段和兼容性门槛以 `docs/07-selection-translation-feature-design.md` 为准。本节固定第一阶段的文件、接口、任务顺序和状态变化。
+
+### 14.1 文件范围
+
+| 文件 | 改动 |
+| --- | --- |
+| `Resources/Info.plist` | 声明一个接收纯文本、无返回类型的 `NSServices` 服务 |
+| `Sources/LightTrans/SelectionServiceProvider.swift` | 新增服务提供者，读取请求专用 pasteboard 并生成不可变请求 |
+| `Sources/LightTrans/AppDelegate.swift` | 持有并注册服务提供者；接收请求后显示面板 |
+| `Sources/LightTrans/UI/PanelViewModel.swift` | 接收外部文字；处理长文本、连续请求、停止状态和历史写入 |
+| `Sources/LightTrans/UI/TranslatePanelView.swift` | 在现有操作栏显示长文本费用保护提示，不改变面板几何尺寸 |
+| `Tests/LightTransTests/SelectionRequestTests.swift` | 覆盖纯文本校验、字符上限和最新请求优先 |
+| `Tests/LightTransTests/PanelExternalInputTests.swift` | 覆盖任务停止、历史写入顺序和外部文字载入 |
+
+不得修改 `TranslationService` 的请求协议、配置键、历史 JSON Lines 字段或现有窗口尺寸。
+
+### 14.2 Info.plist 服务声明
+
+在主应用 `Info.plist` 增加以下结构：
+
+```xml
+<key>NSServices</key>
+<array>
+    <dict>
+        <key>NSMenuItem</key>
+        <dict>
+            <key>default</key>
+            <string>轻译：打开面板</string>
+        </dict>
+        <key>NSMessage</key>
+        <string>openPanelWithSelectedText</string>
+        <key>NSPortName</key>
+        <string>LightTrans</string>
+        <key>NSSendTypes</key>
+        <array>
+            <string>public.utf8-plain-text</string>
+        </array>
+        <key>NSRequiredContext</key>
+        <dict/>
+        <key>NSUserData</key>
+        <string>openPanel</string>
+    </dict>
+</array>
+```
+
+第一阶段禁止声明以下键：
+
+- `NSReturnTypes`：第一阶段不向来源应用返回替换内容。
+- `NSTimeout`：无返回值服务不等待模型结果。
+- `NSKeyEquivalent`：避免与来源应用或其他系统服务的快捷键冲突。
+- `NSRestricted`：服务只处理调用方主动提供的纯文本，不读取文件或执行路径。
+
+应用仍使用现有 `LSUIElement = true`、ad-hoc 签名和主应用包，不新增 App Extension 或独立 `.service` 包。
+
+### 14.3 SelectionServiceProvider
+
+新增不可变请求：
+
+```swift
+struct SelectionRequest: Sendable {
+    let text: String
+    let receivedAt: Date
+}
+```
+
+服务提供者接口：
+
+```swift
+final class SelectionServiceProvider: NSObject {
+    var onRequest: (@MainActor (SelectionRequest) -> Void)?
+
+    @objc func openPanelWithSelectedText(
+        _ pasteboard: NSPasteboard,
+        userData: String?,
+        error: AutoreleasingUnsafeMutablePointer<NSString?>
+    )
+}
+```
+
+处理规则：
+
+1. 只用 `pasteboard.string(forType: .string)` 读取纯文本。
+2. 读取失败时设置 `error.pointee = "未收到可处理的文本"`，不调用 `onRequest`。
+3. 用 `trimmingCharacters(in: .whitespacesAndNewlines)` 只判断是否为空；传给请求的 `text` 必须保留原始首尾空格和换行。
+4. 仅空白时直接返回，不打开面板、不写历史、不发起请求。
+5. 有效文本封装为 `SelectionRequest`，通过 `Task { @MainActor in ... }` 交给主线程。
+6. 把请求交给主线程后立即结束服务方法；不得在服务方法内等待模型响应。
+7. 不读取通用剪贴板，不记录正文，不调用 `TranslationService` 或 `HistoryStore`。
+
+### 14.4 AppDelegate 注册与面板显示
+
+`AppDelegate` 增加对 `SelectionServiceProvider` 的强引用。正式启动顺序固定为：
+
+1. `setupStatusItem()`
+2. `setupPanel()`
+3. `setupSelectionService()`
+4. `startShortcutListener()`
+
+`setupSelectionService()` 的职责：
+
+```swift
+private func setupSelectionService() {
+    let provider = SelectionServiceProvider()
+    provider.onRequest = { [weak self] request in
+        self?.handleSelectionRequest(request)
+    }
+    selectionServiceProvider = provider
+    NSApp.servicesProvider = provider
+    NSUpdateDynamicServices()
+}
+```
+
+必须在面板和 `PanelViewModel` 初始化完成后设置 `NSApp.servicesProvider`。系统设置服务提供者后可能立即发送请求，提前注册会产生冷启动空引用。
+
+`handleSelectionRequest(_:)` 的顺序：
+
+1. 调用 `panelViewModel.acceptExternalText(request.text)`。
+2. 面板隐藏时，按现有规则定位到鼠标所在屏幕。
+3. 面板已经显示时保留当前位置，禁止因重复服务请求跳回默认位置。
+4. 调用 `makeKeyAndOrderFront(nil)`。
+5. 发送 `.panelDidShow`，让输入框获得焦点。
+
+该入口是「显示」语义，不复用 `togglePanel()`；面板已显示时不得被服务请求反向隐藏。
+
+DEBUG UI 验收启动分支不得注册系统服务，避免截图进程污染正式服务列表。
+
+### 14.5 PanelViewModel 外部请求状态
+
+新增常量和状态：
+
+```swift
+static let selectionAutoTranslateCharacterLimit = 5_000
+
+@Published var selectionNotice: String?
+private var latestSelectionRequestID: UInt64 = 0
+```
+
+新增入口：
+
+```swift
+func acceptExternalText(_ text: String)
+```
+
+每次调用时执行：
+
+1. `latestSelectionRequestID += 1`，当前值作为本次 `requestID`。
+2. 创建主线程 Task 处理请求，不立即改变现有 `generation`。
+3. 若当前正在翻译，先把 `currentTask` 捕获为局部常量，再取消并等待该任务结束；不得在挂起后重新读取可能已指向新任务的属性。
+4. 等待期间若出现更新请求，旧 Task 在继续前比较 `requestID == latestSelectionRequestID`；不相等则结束，不载入旧文字。
+5. 当前协调任务结束后必须已经完成一次 `stopped` 历史写入；只有此后才能载入最新文字。
+6. 清空两路旧结果与状态，把原始 `text` 写入 `inputText`。
+7. 字符数不超过 `5,000` 时清空 `selectionNotice` 并调用 `startTranslate()`。
+8. 字符数超过 `5,000` 时不调用模型，设置 `selectionNotice = "选中文字超过 5,000 字符，请确认后翻译"`。
+
+任务生命周期同时作以下订正：
+
+- `runPart` 捕获 `CancellationError` 时，若代次仍有效，必须把对应分段状态设为 `.stopped`，不得保留 `.translating`。
+- 协调任务只负责一次历史写入；写入完成后，在代次仍有效时把 `currentTask` 置为 `nil`。
+- `startTranslate()` 开始时清空 `selectionNotice`。
+- 手动停止和外部请求停止均通过相同协调任务写历史，不得从外部入口直接调用 `HistoryStore.append`。
+- 载入超长选区后，手动点击「翻译」或按 `Command+Return` 直接执行，不增加第二次确认。
+
+### 14.6 TranslatePanelView 提示位置
+
+保持操作栏 `28 pt` 高度和现有按钮尺寸，不新增垂直区域：
+
+- 翻译中：左侧继续显示 `ProgressView` 和「正在生成…」，忽略 `selectionNotice`。
+- 未翻译且 `selectionNotice != nil`：用左侧原有空白位置显示提示，使用 `caption` 和 `.secondary`，单行尾部截断，并通过 `.help(selectionNotice)` 提供完整文本。
+- 未翻译且没有提示：保持现有空白。
+- 开始翻译、清空输入或收到新的普通选区时清除提示。
+
+提示不得改变输入卡、两张结果卡、底部栏和窗口总高度，T16 视觉基准仍然有效。
+
+### 14.7 历史、剪贴板与日志
+
+- 正常选区产生的历史与面板手动双路翻译一致。
+- 因新服务请求停止的旧任务写为 `stopped`，保留两路已收到的部分结果。
+- 超长选区在手动开始前不写历史。
+- 历史开关关闭时不写记录，但任务替换顺序保持不变。
+- 第一阶段禁止读取、清空或写入 `NSPasteboard.general`。
+- 请求专用 pasteboard 只在服务方法内读取，不保存引用。
+- 日志只记录服务请求接收、空文本、字符上限分支和错误类别；不得记录原文、结果或 pasteboard 内容。
+- 第一阶段不记录来源应用名称、窗口标题、文档 URL 或进程信息。
+
+### 14.8 第一阶段验证
+
+T17 必须先验证系统设计 A-6 至 A-11，再完成正式接入。验证范围：
+
+1. `Info.plist` 可通过 `plutil -lint`，系统服务列表能识别 `轻译：打开面板`。
+2. 轻译未运行、后台运行、面板已显示三种状态均能收到选区。
+3. 不授予「辅助功能」权限时，兼容应用仍能工作。
+4. 中文、英文、多行、Emoji、组合字符、首尾空格能无损进入输入框。
+5. `4,999`、`5,000`、`5,001` 个 `Character` 分别覆盖自动执行边界。
+6. 翻译中连续触发两次，新旧历史数量、状态、原文和结果均正确，最终只执行最新选区。
+7. 第一阶段前后 `NSPasteboard.general.changeCount` 和内容不变。
+8. 配置缺失、断网、单路失败、手动停止、面板隐藏的行为与现有面板一致。
+9. 对 `docs/07-selection-translation-feature-design.md` 第 13 节列出的已安装应用执行完整兼容性检查。
+10. 运行单元测试、Debug/Release 构建、应用打包、严格签名和现有 UI 视觉回归。
+
+### 14.9 后续阶段边界
+
+- FR-14 的单路翻译并复制不得在 T17 顺带实现。
+- FR-15 的原位替换必须先通过功能设计第 8.2 节全部门槛，再补充本详细设计。
+- 未经新的设计确认，不得增加 `NSReturnTypes`、Accessibility API、模拟键盘、通知权限或终端输入能力。
