@@ -434,7 +434,7 @@ generate_overlays() {
     local pairs=(
         "panel-idle|docs/assets/v5/lighttrans_panel_idle.png"
         "panel-streaming|docs/assets/v5/lighttrans_panel_streaming.png"
-        "panel-done|docs/assets/v5/lighttrans_panel_done.png"
+        "panel-done|docs/assets/v5/lighttrans_panel_done_zh_en.png"
         "panel-partial-fail|docs/assets/v5/lighttrans_panel_partial_fail.png"
         "panel-stopped|docs/assets/v5/lighttrans_panel_stopped.png"
         "settings-api-success|docs/assets/v5/lighttrans_settings_api.png"

@@ -8,7 +8,7 @@
 | --- | --- |
 | `v5/lighttrans_panel_idle.png` | 翻译面板空闲态 |
 | `v5/lighttrans_panel_streaming.png` | 翻译面板生成中 |
-| `v5/lighttrans_panel_done.png` | 翻译面板完成态 |
+| `v5/lighttrans_panel_done_zh_en.png` | 翻译面板完成态（中文输入、英文直译与转写） |
 | `v5/lighttrans_panel_partial_fail.png` | 翻译面板局部失败态 |
 | `v5/lighttrans_panel_stopped.png` | 翻译面板停止态 |
 | `v5/lighttrans_settings_api.png` | 设置窗口接口配置页 |

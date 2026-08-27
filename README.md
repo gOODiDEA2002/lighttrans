@@ -4,7 +4,7 @@
 
 当前版本为 `0.1.1`。项目提供源码构建方式和适用于 Apple Silicon Mac 的未签名预览版；预览版采用 ad-hoc 签名，未经过 Developer ID 签名和 Apple 公证。
 
-![轻译翻译面板](docs/assets/v5/lighttrans_panel_done.png)
+![轻译翻译面板](docs/assets/v5/lighttrans_panel_done_zh_en.png)
 
 ## 功能
 
