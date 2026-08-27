@@ -222,6 +222,7 @@
   - `shasum -a 256 -c SHA256SUMS` 通过；
   - GitHub Release 标记为 Pre-release，附件名、大小和校验值与 Actions 构建结果一致；
   - README 不把未签名预览版描述为 Apple 已审核或可无提示安装。
+- 验收结果（2026-08-27）：通过。发布准备提交和 `v0.1.0` Tag 的常规 CI 均通过；[Release Preview](https://github.com/gOODiDEA2002/lighttrans/actions/runs/33058902845) 完成 27/27 单元测试、应用构建、ad-hoc 签名、ZIP 往返解压、`arm64` 架构和 SHA-256 校验，并创建 [v0.1.0 未签名预览版](https://github.com/gOODiDEA2002/lighttrans/releases/tag/v0.1.0)。从 GitHub 重新下载的 2,760,356 字节 ZIP 再次通过签名、架构和 SHA-256 校验，校验值为 `9dc92078e4e2e3de3e748a5ce9c4b5ca08b715b563eb77aca4d7856caf077ea8`；远端 Tag 指向发布提交 `1c3fd41106ea98d9d2455ba9954af193cafe0275`。
 
 ## 2. 总验收记录（T10 时填写）
 
