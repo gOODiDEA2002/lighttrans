@@ -91,12 +91,9 @@ struct UIAcceptanceHistorySnapshot {
 
 @MainActor
 enum UIAcceptancePanelScenario {
-    static let baselineInput = """
-    How to design a resilient and responsive
-    system architecture for real-time streaming?
-    """
-    static let baselineLiteral = "如何为实时数据流设计一个具有高弹性与高响应性的系统架构？"
-    static let baselineRewrite = "Act as a Principal Cloud Architect and design a resilient, responsive architecture for real-time streaming."
+    static let baselineInput = "帮我设计一个支持实时数据流的高弹性、高响应性系统架构。"
+    static let baselineLiteral = "Help me design a highly resilient and responsive system architecture for real-time data streaming."
+    static let baselineRewrite = "Act as a Principal Cloud Architect. Design a resilient and responsive architecture for real-time data streaming, covering scalability, fault tolerance, observability, and disaster recovery."
 
     static func makeViewModel(for state: UIAcceptanceState) -> PanelViewModel {
         let vm = PanelViewModel()
@@ -152,7 +149,7 @@ enum UIAcceptancePanelScenario {
         switch state {
         case .panelIdle, .panelStreaming, .panelDone, .panelPartialFail, .panelStopped,
              .panelHeight70, .panelHeight100, .panelHeight240:
-            return 82
+            return baselineInput.count
         default:
             return nil
         }

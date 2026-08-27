@@ -1,6 +1,6 @@
 # 轻译（LightTrans）
 
-轻译是一个 macOS 菜单栏翻译工具。应用通过用户配置的 OpenAI Chat Completions 兼容接口，同时生成直译与英文提示词转写结果，并支持全局快捷键、macOS 服务、历史记录和多设备 iCloud 云盘同步。
+轻译是一个面向中文提示词的 macOS 菜单栏工具。应用把中文想法同时转换为两种英文结果：一份保留原意的直译，以及一份结构更清晰、可直接交给大模型使用的英文提示词。主要用途是减少中文需求交给大模型时的表达偏差，不以通用多语言翻译为主要目标。
 
 当前版本为 `0.1.1`。项目提供源码构建方式和适用于 Apple Silicon Mac 的未签名预览版；预览版采用 ad-hoc 签名，未经过 Developer ID 签名和 Apple 公证。
 
@@ -9,13 +9,41 @@
 ## 功能
 
 - 菜单栏常驻，不占用 Dock；默认使用 `Option+T` 呼出翻译面板。
-- 同时生成直译与英文提示词转写，两路结果独立流式显示。
+- 输入中文后，同时生成英文直译和面向大模型的英文提示词转写，两路结果独立流式显示。
 - 支持停止生成、结果复制、输入区高度调节和快捷入口。
 - 可配置接口地址、API Key、模型名、提示词模板和最大输出 Token。
 - API Key 存入 macOS 钥匙串；其他设置存入 UserDefaults。
 - 通过「轻译：打开面板」macOS 服务接收其他应用中的选中文字。
 - 历史记录采用 JSON Lines 格式，可通过 iCloud 云盘在多台 Mac 间合并显示。
 - 支持开机启动和全局快捷键重新录制。
+
+## 使用示例
+
+以下结果仅用于说明两种输出的区别，实际内容取决于模型和提示词模板。
+
+输入中文需求：
+
+```text
+帮我写一个 Python 函数，读取 CSV 文件并按日期汇总销售额，缺失值按 0 处理。
+```
+
+英文直译保留原始含义：
+
+```text
+Write a Python function that reads a CSV file, summarizes sales amounts by date, and treats missing values as 0.
+```
+
+英文提示词转写会整理任务结构，使大模型更容易识别约束：
+
+```text
+Write a Python function that:
+1. Reads sales data from a CSV file.
+2. Groups the records by date and calculates the total sales amount for each date.
+3. Treats missing sales values as 0.
+Return the complete implementation with a short usage example.
+```
+
+两种结果都可以单独复制。直译适合核对原意，提示词转写适合直接发送给大模型。
 
 ## 运行要求
 
@@ -97,13 +125,13 @@ bash Scripts/build-app.sh
 2. 右键菜单栏图标，打开「设置」。
 3. 填写接口地址、模型名和 API Key；按需调整两套提示词模板。
 4. 按 `Option+T` 或左键点击菜单栏图标打开面板。
-5. 输入文字后按 `Cmd+Return`，或点击「翻译」。
+5. 输入中文需求后按 `Cmd+Return`，或点击「翻译」。
 
 翻译过程中可以停止请求。隐藏面板不会清空当前输入和结果。
 
-## 翻译选中文字
+## 转换选中的中文
 
-安装应用后，支持 macOS 服务的来源应用可以把选中文字发送给轻译：
+安装应用后，支持 macOS 服务的来源应用可以把选中的中文发送给轻译：
 
 1. 在来源应用中选中文字。
 2. 从应用菜单的「服务」子菜单选择「轻译：打开面板」。
@@ -157,7 +185,7 @@ bash Scripts/capture-ui-acceptance.sh --state history-long-device-model
 | [需求文档](docs/01-requirements.md) | 功能范围、非功能要求与验收边界 |
 | [系统设计](docs/02-system-design.md) | 架构、技术决策和硬约束 |
 | [详细设计](docs/03-detailed-design.md) | 模块、接口、存储、网络和打包设计 |
-| [实施计划](docs/04-implementation-plan.md) | T1 至 T18 的实施与验收记录 |
+| [实施计划](docs/04-implementation-plan.md) | T1 至 T20 的实施与验收记录 |
 | [UI 视觉基准](docs/changes/ui-visual-consistency/v5-baseline.md) | 当前窗口尺寸、颜色和状态基准 |
 | [选中文字功能设计](docs/07-selection-translation-feature-design.md) | macOS 服务的能力边界与兼容性 |
 | [T17 验收记录](docs/08-selection-translation-acceptance.md) | 选中文字功能的测试结果 |
