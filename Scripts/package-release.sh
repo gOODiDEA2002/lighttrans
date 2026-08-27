@@ -15,6 +15,26 @@ EXPECTED_TAG="v${APP_VERSION}"
 DIST_DIR="${LIGHTTRANS_DIST_DIR:-${ROOT_DIR}/dist}"
 ASSET_NAME="${APP_NAME}-${EXPECTED_TAG}-macos-arm64.zip"
 RELEASE_NOTES=".github/release-notes/${EXPECTED_TAG}.md"
+KEYBOARD_SHORTCUTS_BUNDLE="KeyboardShortcuts_KeyboardShortcuts.bundle"
+
+verify_resource_layout() {
+    local app_path="$1"
+    local expected_bundle="${app_path}/Contents/Resources/${KEYBOARD_SHORTCUTS_BUNDLE}"
+
+    if [[ ! -f "${expected_bundle}/Info.plist" \
+        || ! -f "${expected_bundle}/en.lproj/Localizable.strings" ]]; then
+        echo "错误：${app_path} 缺少完整的 KeyboardShortcuts 资源包" >&2
+        return 1
+    fi
+    if [[ -e "${app_path}/Contents/MacOS/${KEYBOARD_SHORTCUTS_BUNDLE}" ]]; then
+        echo "错误：KeyboardShortcuts 资源包不得位于 Contents/MacOS" >&2
+        return 1
+    fi
+    if [[ -e "${app_path}/${KEYBOARD_SHORTCUTS_BUNDLE}" ]]; then
+        echo "错误：KeyboardShortcuts 资源包不得位于应用包根目录" >&2
+        return 1
+    fi
+}
 
 if [[ -z "${RELEASE_TAG}" ]]; then
     echo "用法：bash Scripts/package-release.sh v{版本}" >&2
@@ -34,6 +54,7 @@ if [[ -e "${DIST_DIR}" ]]; then
 fi
 
 bash "${SCRIPT_DIR}/build-app.sh"
+verify_resource_layout "${APP_PATH}"
 codesign --verify --deep --strict "${APP_PATH}"
 
 ACTUAL_ARCHS="$(lipo -archs "${EXECUTABLE_PATH}")"
@@ -52,6 +73,7 @@ ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "${DIST_DIR}/${ASSET_NAME
 
 VERIFY_DIR="$(mktemp -d)"
 ditto -x -k "${DIST_DIR}/${ASSET_NAME}" "${VERIFY_DIR}"
+verify_resource_layout "${VERIFY_DIR}/${APP_NAME}.app"
 codesign --verify --deep --strict "${VERIFY_DIR}/${APP_NAME}.app"
 
 UNPACKED_ARCHS="$(lipo -archs "${VERIFY_DIR}/${APP_NAME}.app/Contents/MacOS/${APP_NAME}")"

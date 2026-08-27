@@ -1,9 +1,9 @@
 # 实施计划（编码任务清单）
 
 项目名：LightTrans（应用显示名：轻译）
-文档版本：v1.3（2026-08-27）
+文档版本：v1.4（2026-08-27）
 执行者：项目开发流程
-依据：03-detailed-design.md（详细设计）。本清单只安排「做什么、什么顺序、怎么验收」，实现细节一律以详细设计为准。任务共 19 项（T1 至 T19）。
+依据：03-detailed-design.md（详细设计）。本清单只安排「做什么、什么顺序、怎么验收」，实现细节一律以详细设计为准。任务共 20 项（T1 至 T20）。
 
 ## 0. 编码纪律（执行前必读）
 
@@ -223,6 +223,20 @@
   - GitHub Release 标记为 Pre-release，附件名、大小和校验值与 Actions 构建结果一致；
   - README 不把未签名预览版描述为 Apple 已审核或可无提示安装。
 - 验收结果（2026-08-27）：通过。发布准备提交和 `v0.1.0` Tag 的常规 CI 均通过；[Release Preview](https://github.com/gOODiDEA2002/lighttrans/actions/runs/33058902845) 完成 27/27 单元测试、应用构建、ad-hoc 签名、ZIP 往返解压、`arm64` 架构和 SHA-256 校验，并创建 [v0.1.0 未签名预览版](https://github.com/gOODiDEA2002/lighttrans/releases/tag/v0.1.0)。从 GitHub 重新下载的 2,760,356 字节 ZIP 再次通过签名、架构和 SHA-256 校验，校验值为 `9dc92078e4e2e3de3e748a5ce9c4b5ca08b715b563eb77aca4d7856caf077ea8`；远端 Tag 指向发布提交 `1c3fd41106ea98d9d2455ba9954af193cafe0275`。
+
+### T20 修复预览版快捷键设置闪退
+
+- 内容：发布 `v0.1.1`，修复从 GitHub Release 下载的应用打开「通用与快捷键」时闪退的问题。
+  - 将 SwiftPM 依赖资源包复制到标准的 `Contents/Resources/` 目录；
+  - 为固定版本的 `KeyboardShortcuts` 增加最小资源定位兼容补丁；
+  - 在发布脚本中增加打包前和解压后的资源位置校验；
+  - 更新 README、变更记录和 GitHub Release 说明，并在 `v0.1.0` 页面标明已知问题。
+- 验收标准：
+  - 单元测试、Debug/Release 构建和严格签名校验通过；
+  - ZIP 解压后，资源包仅位于 `Contents/Resources/`，签名、`arm64` 架构和 SHA-256 校验通过；
+  - 暂时移除本机 `.build` 回退资源后，从 ZIP 启动应用并打开「通用与快捷键」，进程保持运行且快捷键录制控件正常显示；
+  - GitHub Actions 成功创建 `v0.1.1` Pre-release，附件与本地验证结构一致。
+- 验收结果（2026-08-27）：本地验证通过。27/27 单元测试、干净依赖解析、Release 构建、资源位置、严格签名、`arm64` 架构、ZIP 往返解压和 SHA-256 校验均通过；暂时移除 `.build` 回退资源后，从 ZIP 启动应用并打开「通用与快捷键」，快捷键录制控件正常显示，进程保持运行且没有新增崩溃报告。GitHub Actions 与 Pre-release 待 Tag 推送后确认。
 
 ## 2. 总验收记录（T10 时填写）
 

@@ -1,7 +1,7 @@
 # 详细设计文档
 
 项目名：LightTrans（应用显示名：轻译）
-文档版本：v1.8（2026-08-27）
+文档版本：v1.9（2026-08-27）
 关联文档：02-system-design.md（系统设计）、04-implementation-plan.md（实施计划）、07-selection-translation-feature-design.md（选中文字翻译功能设计）
 
 本文档是编码的直接依据。编码时如遇本文档未覆盖的决策点，停下补充设计并经确认后再继续，不得在代码中即兴决定。
@@ -314,7 +314,7 @@ enum TranslationError: Error {
 | CFBundleIdentifier | com.andy.lighttrans |
 | CFBundleName / CFBundleDisplayName | LightTrans / 轻译 |
 | CFBundleExecutable | LightTrans |
-| CFBundleShortVersionString | 0.1.0 |
+| CFBundleShortVersionString | 0.1.1 |
 | LSUIElement | true（铁律 L-2） |
 | LSMinimumSystemVersion | 14.0 |
 | NSHumanReadableCopyright | Copyright © 2026 LightTrans contributors |
@@ -323,11 +323,12 @@ enum TranslationError: Error {
 
 1. 执行 `swift package resolve`，确认 `KeyboardShortcuts` 的修订号与 `Package.resolved` 中固定的 `1aef8557` 一致。
 2. 若 `Recorder.swift` 中仍含 `#Preview`，应用 `Patches/KeyboardShortcuts-2.4.0-remove-previews.patch`；补丁只删除三个开发预览块，不修改运行时代码（铁律 L-9）。修订号或补丁上下文不匹配时停止并报错，不继续编译。
-3. 执行 `swift build -c release`。
-4. 组装 `build/LightTrans.app/Contents/{MacOS,Resources}` 目录结构。
-5. 复制可执行文件至 `Contents/MacOS/LightTrans`；复制 Info.plist 至 `Contents/`。
-6. `codesign --force --sign - build/LightTrans.app`（ad-hoc 签名）。
-7. 输出产物路径。脚本任何一步失败立即退出并报错（`set -euo pipefail`）。
+3. 对 `Utilities.swift` 应用固定版本的资源定位兼容补丁：应用包运行时优先从 `Bundle.main` 的资源目录加载 `KeyboardShortcuts_KeyboardShortcuts.bundle`，源码构建和单元测试环境继续回退到 SwiftPM 生成的 `Bundle.module`。补丁不修改快捷键行为；修订号或补丁上下文不匹配时停止并报错。
+4. 执行 `swift build -c release`。
+5. 组装 `build/LightTrans.app/Contents/{MacOS,Resources}` 目录结构。
+6. 复制可执行文件至 `Contents/MacOS/LightTrans`，复制 Info.plist 至 `Contents/`，复制应用图标和 SwiftPM 生成的 `.bundle` 至 `Contents/Resources/`。依赖资源不得放入 `Contents/MacOS/` 或 `.app` 根目录：前者不在运行时查找范围内，后者无法通过 macOS 严格签名校验。
+7. `codesign --force --deep --sign - build/LightTrans.app`（ad-hoc 签名），随后执行严格签名校验。
+8. 输出产物路径。脚本任何一步失败立即退出并报错（`set -euo pipefail`）。
 
 安装方式：将 `build/LightTrans.app` 拷贝到 `/Applications` 后启动（开机自启功能要求应用位于稳定路径，对应假设 A-3）。
 
@@ -337,11 +338,12 @@ enum TranslationError: Error {
 
 1. 校验 Tag 必须等于 `v{CFBundleShortVersionString}`，不一致时停止。
 2. 运行单元测试和 `Scripts/build-app.sh`，随后执行严格签名校验。
-3. 校验可执行文件只包含 `arm64` 架构；首个预览版不生成 Intel 或 Universal Binary 产物。
-4. 使用 `ditto` 把完整应用包压缩为 `LightTrans-v{版本}-macos-arm64.zip`，避免破坏资源和扩展属性。
-5. 解压到临时目录，再次校验应用签名和可执行文件架构。
-6. 生成 `SHA256SUMS`，其中只包含本次 ZIP 的 SHA-256。
-7. 使用仓库内对应版本的发布说明创建 GitHub Pre-release，并上传 ZIP 与校验文件。
+3. 校验 `KeyboardShortcuts_KeyboardShortcuts.bundle` 位于 `Contents/Resources/`，并确认 `Contents/MacOS/` 与 `.app` 根目录不存在同名资源包。
+4. 校验可执行文件只包含 `arm64` 架构；预览版不生成 Intel 或 Universal Binary 产物。
+5. 使用 `ditto` 把完整应用包压缩为 `LightTrans-v{版本}-macos-arm64.zip`，避免破坏资源和扩展属性。
+6. 解压到临时目录，再次校验资源位置、应用签名和可执行文件架构。
+7. 生成 `SHA256SUMS`，其中只包含本次 ZIP 的 SHA-256。
+8. 使用仓库内对应版本的发布说明创建 GitHub Pre-release，并上传 ZIP 与校验文件。
 
 发布工作流只授予 `contents: write` 权限，不保存开发者证书或其他发布凭据。重复推送同一 Tag 不属于支持的发布方式；发布内容需要修正时，递增版本并创建新 Tag，不静默替换既有附件。
 

@@ -1,0 +1,34 @@
+diff --git a/Sources/KeyboardShortcuts/Utilities.swift b/Sources/KeyboardShortcuts/Utilities.swift
+--- a/Sources/KeyboardShortcuts/Utilities.swift
++++ b/Sources/KeyboardShortcuts/Utilities.swift
+@@ -3,12 +3,29 @@ import SwiftUI
+ #if os(macOS)
+ import Carbon.HIToolbox
+ 
+ 
++private extension Bundle {
++	static let keyboardShortcutsResources: Bundle = {
++		guard
++			let bundleURL = Bundle.main.url(
++				forResource: "KeyboardShortcuts_KeyboardShortcuts",
++				withExtension: "bundle"
++			),
++			let bundle = Bundle(url: bundleURL)
++		else {
++			return .module
++		}
++
++		return bundle
++	}()
++}
++
++
+ extension String {
+ 	/**
+ 	Makes the string localizable.
+ 	*/
+ 	var localized: String {
+-		NSLocalizedString(self, bundle: .module, comment: self)
++		NSLocalizedString(self, bundle: .keyboardShortcutsResources, comment: self)
+ 	}
+ }
