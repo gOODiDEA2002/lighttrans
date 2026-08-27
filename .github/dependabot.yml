@@ -4,3 +4,7 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    ignore:
+      - dependency-name: github.com/sindresorhus/KeyboardShortcuts
+        update-types:
+          - version-update:semver-major
