@@ -236,7 +236,7 @@
   - ZIP 解压后，资源包仅位于 `Contents/Resources/`，签名、`arm64` 架构和 SHA-256 校验通过；
   - 暂时移除本机 `.build` 回退资源后，从 ZIP 启动应用并打开「通用与快捷键」，进程保持运行且快捷键录制控件正常显示；
   - GitHub Actions 成功创建 `v0.1.1` Pre-release，附件与本地验证结构一致。
-- 验收结果（2026-08-27）：本地验证通过。27/27 单元测试、干净依赖解析、Release 构建、资源位置、严格签名、`arm64` 架构、ZIP 往返解压和 SHA-256 校验均通过；暂时移除 `.build` 回退资源后，从 ZIP 启动应用并打开「通用与快捷键」，快捷键录制控件正常显示，进程保持运行且没有新增崩溃报告。GitHub Actions 与 Pre-release 待 Tag 推送后确认。
+- 验收结果（2026-08-27）：通过。27/27 单元测试、干净依赖解析、Release 构建、资源位置、严格签名、`arm64` 架构、ZIP 往返解压和 SHA-256 校验均通过；暂时移除 `.build` 回退资源后，从 ZIP 启动应用并打开「通用与快捷键」，快捷键录制控件正常显示，进程保持运行且没有新增崩溃报告。[master CI](https://github.com/gOODiDEA2002/lighttrans/actions/runs/33063761096)、[Tag CI](https://github.com/gOODiDEA2002/lighttrans/actions/runs/33063768371) 和 [Release Preview](https://github.com/gOODiDEA2002/lighttrans/actions/runs/33063768137) 均成功，[v0.1.1 未签名预览版](https://github.com/gOODiDEA2002/lighttrans/releases/tag/v0.1.1) 已创建。从 GitHub 重新下载的 ZIP 为 2,758,216 字节，SHA-256 为 `f73e37595f184f665c212ef197512f580645e999008effd878f7642014bfcca8`，资源包仅位于 `Contents/Resources/`；`v0.1.0` Release 页面已增加升级警告。
 
 ## 2. 总验收记录（T10 时填写）
 
