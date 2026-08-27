@@ -1,0 +1,40 @@
+name: Release Preview
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-15
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run tests
+        run: swift test
+
+      - name: Build, package and verify app
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bash Scripts/package-release.sh "$RELEASE_TAG"
+
+      - name: Create GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            "dist/LightTrans-$RELEASE_TAG-macos-arm64.zip" \
+            "dist/SHA256SUMS" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "LightTrans $RELEASE_TAG 未签名预览版" \
+            --notes-file ".github/release-notes/$RELEASE_TAG.md" \
+            --prerelease \
+            --verify-tag

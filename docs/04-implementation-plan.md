@@ -1,9 +1,9 @@
 # 实施计划（编码任务清单）
 
 项目名：LightTrans（应用显示名：轻译）
-文档版本：v1.2（2026-08-27）
+文档版本：v1.3（2026-08-27）
 执行者：项目开发流程
-依据：03-detailed-design.md（详细设计）。本清单只安排「做什么、什么顺序、怎么验收」，实现细节一律以详细设计为准。任务共 18 项（T1 至 T18）。
+依据：03-detailed-design.md（详细设计）。本清单只安排「做什么、什么顺序、怎么验收」，实现细节一律以详细设计为准。任务共 19 项（T1 至 T19）。
 
 ## 0. 编码纪律（执行前必读）
 
@@ -206,6 +206,22 @@
   - README 不再使用「兼容一切」或「仅本人、不分发」等与源码公开冲突的表述；
   - Git 工作区只包含本任务范围内的文件；不提交、不打标签、不新增远端、不推送。
 - 验收结果（2026-08-27）：通过。27/27 单元测试、警告即错误构建、干净依赖重新解析、Debug/Release 构建、应用组装、严格签名、Release Debug 字符串隔离、脚本语法、Plist、YAML、Markdown 链接和敏感信息规则扫描通过；19 个窗口状态与菜单栏深色、浅色、按下三态均取得成功证据。完整脚本曾两次受 Codex 桌面前台竞争中断，失败状态随后通过新增的 `--state` 单状态严格门禁重跑完成。经确认后，源码已发布至 [GitHub](https://github.com/gOODiDEA2002/lighttrans)；首次 GitHub Actions CI 的测试、Debug 构建、Release 应用组装、签名校验和 UI 验收代码隔离全部通过。
+
+### T19 GitHub 未签名预览版发布
+
+- 内容：为没有 Developer ID 证书的 `v0.1.0` 提供可下载的 Apple Silicon 未签名预览版。
+  - 更新需求、系统设计和详细设计，明确预览版安全边界与供应链流程；
+  - README 增加下载、SHA-256 校验、安装、Gatekeeper 放行和终端备用步骤；
+  - 增加可在本地和 GitHub Actions 共用的 Release 附件打包脚本；
+  - Tag 推送后由 GitHub Actions 测试、构建、校验、压缩并创建 Pre-release；
+  - 附件固定为 `LightTrans-v0.1.0-macos-arm64.zip` 和 `SHA256SUMS`。
+- 验收标准：
+  - Tag 与 `CFBundleShortVersionString` 一致；
+  - 单元测试、应用构建和严格签名校验通过；
+  - ZIP 解压后的应用仍通过签名校验，且可执行文件只包含 `arm64`；
+  - `shasum -a 256 -c SHA256SUMS` 通过；
+  - GitHub Release 标记为 Pre-release，附件名、大小和校验值与 Actions 构建结果一致；
+  - README 不把未签名预览版描述为 Apple 已审核或可无提示安装。
 
 ## 2. 总验收记录（T10 时填写）
 

@@ -2,7 +2,7 @@
 
 轻译是一个 macOS 菜单栏翻译工具。应用通过用户配置的 OpenAI Chat Completions 兼容接口，同时生成直译与英文提示词转写结果，并支持全局快捷键、macOS 服务、历史记录和多设备 iCloud 云盘同步。
 
-当前版本为 `0.1.0`。项目提供源码构建方式，暂不提供经过 Developer ID 签名和 Apple 公证的二进制安装包。
+当前版本为 `0.1.0`。项目提供源码构建方式和适用于 Apple Silicon Mac 的未签名预览版；预览版采用 ad-hoc 签名，未经过 Developer ID 签名和 Apple 公证。
 
 ![轻译翻译面板](docs/assets/v5/lighttrans_panel_done.png)
 
@@ -33,7 +33,39 @@ Content-Type: application/json
 
 流式响应需要使用 SSE，并在 `choices[0].delta.content` 中返回文本片段。不同服务的兼容程度取决于其接口实现。
 
-## 构建与安装
+## 下载与安装预览版
+
+从 [GitHub Releases](https://github.com/gOODiDEA2002/lighttrans/releases) 下载以下文件：
+
+- `LightTrans-v0.1.0-macos-arm64.zip`
+- `SHA256SUMS`
+
+该预览版仅支持 Apple Silicon Mac，适用于 M1、M2、M3、M4 及后续同架构机型。Intel Mac 需要按下一节从源码构建。
+
+安装前先在下载目录核对文件完整性：
+
+```bash
+shasum -a 256 -c SHA256SUMS
+```
+
+校验通过后按以下步骤安装：
+
+1. 解压 `LightTrans-v0.1.0-macos-arm64.zip`。
+2. 将 `LightTrans.app` 移入「应用程序」文件夹。
+3. 双击启动。若 macOS 阻止打开，进入「系统设置 → 隐私与安全性」，在安全提示处选择「仍要打开」。
+
+预览版没有 Developer ID 签名。在启用 Gatekeeper 的常规 macOS 设置下，首次启动通常会出现未识别开发者提示。仅应安装从本项目官方 GitHub Release 下载且 SHA-256 校验通过的文件。
+
+若「仍要打开」不可用，并且已经确认下载来源与校验值，可使用以下备用命令移除该应用的隔离标记：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/LightTrans.app
+open /Applications/LightTrans.app
+```
+
+以上命令只应指向确认过来源的 `LightTrans.app`，不应对其他文件或目录执行。
+
+## 从源码构建与安装
 
 推荐从源码构建并安装到 `/Applications/LightTrans.app`：
 
@@ -133,7 +165,8 @@ bash Scripts/capture-ui-acceptance.sh --state history-long-device-model
 
 ## 已知限制
 
-- 当前不提供经过 Developer ID 签名和 Apple 公证的安装包。
+- 当前预览版仅提供 Apple Silicon（`arm64`）构建，不支持 Intel Mac。
+- 预览版采用 ad-hoc 签名，未经过 Developer ID 签名和 Apple 公证，首次启动需要由 macOS「隐私与安全性」设置明确放行。
 - 仅支持 OpenAI Chat Completions 风格接口，不支持 Responses API 等其他协议。
 - 来源应用是否显示 macOS 服务由来源应用决定。
 - 历史记录没有应用层加密和删除界面，需要时可直接管理对应 JSONL 文件。

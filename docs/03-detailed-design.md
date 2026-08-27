@@ -1,7 +1,7 @@
 # 详细设计文档
 
 项目名：LightTrans（应用显示名：轻译）
-文档版本：v1.7（2026-08-27）
+文档版本：v1.8（2026-08-27）
 关联文档：02-system-design.md（系统设计）、04-implementation-plan.md（实施计划）、07-selection-translation-feature-design.md（选中文字翻译功能设计）
 
 本文档是编码的直接依据。编码时如遇本文档未覆盖的决策点，停下补充设计并经确认后再继续，不得在代码中即兴决定。
@@ -330,6 +330,22 @@ enum TranslationError: Error {
 7. 输出产物路径。脚本任何一步失败立即退出并报错（`set -euo pipefail`）。
 
 安装方式：将 `build/LightTrans.app` 拷贝到 `/Applications` 后启动（开机自启功能要求应用位于稳定路径，对应假设 A-3）。
+
+### 8.3 GitHub 未签名预览版
+
+推送与 `CFBundleShortVersionString` 一致的 `v*` Tag 时，GitHub Actions 调用 `Scripts/package-release.sh` 执行以下发布流程。本地验收使用同一脚本，并通过 `LIGHTTRANS_DIST_DIR` 指定一次性输出目录，避免本地与 CI 的实现分叉。
+
+1. 校验 Tag 必须等于 `v{CFBundleShortVersionString}`，不一致时停止。
+2. 运行单元测试和 `Scripts/build-app.sh`，随后执行严格签名校验。
+3. 校验可执行文件只包含 `arm64` 架构；首个预览版不生成 Intel 或 Universal Binary 产物。
+4. 使用 `ditto` 把完整应用包压缩为 `LightTrans-v{版本}-macos-arm64.zip`，避免破坏资源和扩展属性。
+5. 解压到临时目录，再次校验应用签名和可执行文件架构。
+6. 生成 `SHA256SUMS`，其中只包含本次 ZIP 的 SHA-256。
+7. 使用仓库内对应版本的发布说明创建 GitHub Pre-release，并上传 ZIP 与校验文件。
+
+发布工作流只授予 `contents: write` 权限，不保存开发者证书或其他发布凭据。重复推送同一 Tag 不属于支持的发布方式；发布内容需要修正时，递增版本并创建新 Tag，不静默替换既有附件。
+
+README 的安装说明必须先要求核对官方 Release 来源与 SHA-256，再引导通过「系统设置 → 隐私与安全性 → 仍要打开」放行。`xattr -dr com.apple.quarantine` 只能作为来源和哈希均已确认后的备用步骤，命令目标必须限定为 `/Applications/LightTrans.app`。
 
 ## 9. 日志
 
