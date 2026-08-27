@@ -26,15 +26,24 @@ enum KeychainHelper {
         return value
     }
 
-    // 先删后加，避免处理"已存在则更新"分支
+    // 已存在时原子更新，不先删除旧值，避免新增失败导致原密钥丢失
     static func save(_ value: String, service: String, account: String) throws {
-        delete(service: service, account: account)
-        let attributes: [String: Any] = [
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: account
+        ]
+        let update: [String: Any] = [
             kSecValueData as String: Data(value.utf8)
         ]
+
+        let updateStatus = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+        if updateStatus == errSecSuccess { return }
+        guard updateStatus == errSecItemNotFound else {
+            throw KeychainError.unexpectedStatus(updateStatus)
+        }
+
+        let attributes = query.merging(update) { _, new in new }
         let status = SecItemAdd(attributes as CFDictionary, nil)
         guard status == errSecSuccess else {
             throw KeychainError.unexpectedStatus(status)

@@ -13,7 +13,7 @@
 | `v5/lighttrans_panel_stopped.png` | 翻译面板停止态 |
 | `v5/lighttrans_settings_api.png` | 设置窗口接口配置页 |
 | `v5/lighttrans_settings_templates.png` | 设置窗口提示词模板页 |
-| `v5/lighttrans_history.png` | 历史记录窗口 |
+| `v5/lighttrans_history.png` | 历史记录窗口；2026-08-27 重新采集并移除个人设备名 |
 
 这些 PNG 按 macOS 15.7.4、深色外观、2× backing scale 输出。它们用于视觉位置和层级比较；系统字体抗锯齿、SF Symbols 细节和毛玻璃采样仍以真实 AppKit 渲染为准。
 

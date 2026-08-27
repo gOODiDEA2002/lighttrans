@@ -22,12 +22,15 @@ final class HistoryStore {
     static let shared = HistoryStore()
 
     private let logger = Logger(subsystem: "com.andy.lighttrans", category: "history")
-    private let fileManager = FileManager.default
+    private let fileManager: FileManager
+    private let deviceIDProvider: () -> String
     let historyDirURL: URL
     // iCloud 云盘目录是否可用（启动时判定一次并缓存）
     let isICloudAvailable: Bool
 
     private init() {
+        fileManager = .default
+        deviceIDProvider = { ConfigStore.shared.deviceID }
         let iCloudBase = fileManager.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs", isDirectory: true)
         var isDir: ObjCBool = false
@@ -42,9 +45,21 @@ final class HistoryStore {
         }
     }
 
+    // 测试专用：使用隔离目录与设备标识，不访问真实 iCloud 或用户历史
+    init(
+        historyDirURL: URL,
+        fileManager: FileManager = .default,
+        deviceIDProvider: @escaping () -> String
+    ) {
+        self.fileManager = fileManager
+        self.deviceIDProvider = deviceIDProvider
+        self.historyDirURL = historyDirURL
+        self.isICloudAvailable = false
+    }
+
     // 本机历史文件名：history-{deviceID 前 8 位}.jsonl（铁律 L-8，本机只写这一个文件）
     private var localFileURL: URL {
-        let suffix = String(ConfigStore.shared.deviceID.prefix(8))
+        let suffix = String(deviceIDProvider().prefix(8))
         return historyDirURL.appendingPathComponent("history-\(suffix).jsonl")
     }
 

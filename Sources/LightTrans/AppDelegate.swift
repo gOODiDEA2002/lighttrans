@@ -359,7 +359,7 @@ private extension AppDelegate {
 
     func waitForWindowActivation(_ window: NSWindow) {
         for _ in 0..<1000 where !(window.isKeyWindow && window.isMainWindow && NSApp.isActive) {
-            NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
             NSApp.activate(ignoringOtherApps: true)
             window.makeMain()
             window.makeKeyAndOrderFront(nil)

@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Validate plist and whitespace
+        run: |
+          plutil -lint Resources/Info.plist
+          git diff --check
+
+      - name: Run tests
+        run: swift test
+
+      - name: Build Debug
+        run: swift build
+
+      - name: Build and sign app
+        run: bash Scripts/build-app.sh
+
+      - name: Verify app signature
+        run: codesign --verify --deep --strict build/LightTrans.app
+
+      - name: Verify Release excludes UI fixtures
+        run: |
+          release_bin="$(swift build -c release --show-bin-path)/LightTrans"
+          if strings "$release_bin" | grep -E 'ui-acceptance|UIAcceptance|menubar-state|acceptance-key'; then
+            echo "Release binary contains Debug UI fixture strings" >&2
+            exit 1
+          fi

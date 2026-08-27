@@ -9,11 +9,25 @@ OUT_DIR="build/ui-acceptance"
 MENUBAR_DIR="${OUT_DIR}/menubar"
 OVERLAY_DIR="${OUT_DIR}/overlays"
 MENUBAR_ONLY=0
-if [[ "${1:-}" == "--menubar-only" ]]; then
-    MENUBAR_ONLY=1
-fi
+SINGLE_STATE=""
+case "${1:-}" in
+    "") ;;
+    --menubar-only)
+        MENUBAR_ONLY=1
+        ;;
+    --state)
+        SINGLE_STATE="${2:-}"
+        if [[ -z "${SINGLE_STATE}" ]]; then
+            echo "错误：--state 需要指定状态名" >&2
+            exit 2
+        fi
+        ;;
+    *)
+        echo "用法：$0 [--menubar-only | --state <状态名>]" >&2
+        exit 2
+        ;;
+esac
 mkdir -p "${OUT_DIR}" "${MENUBAR_DIR}" "${OVERLAY_DIR}"
-: > "${OUT_DIR}/state-mapping.txt"
 
 echo "==> swift build (Debug)"
 swift build
@@ -45,6 +59,24 @@ STATES=(
     history-no-records
     history-long-device-model
 )
+
+STATE_MAPPING="${OUT_DIR}/state-mapping.txt"
+if [[ -n "${SINGLE_STATE}" ]]; then
+    valid_state=0
+    for state in "${STATES[@]}"; do
+        if [[ "${state}" == "${SINGLE_STATE}" ]]; then
+            valid_state=1
+            break
+        fi
+    done
+    if [[ "${valid_state}" -ne 1 ]]; then
+        echo "错误：未知 UI 验收状态 ${SINGLE_STATE}" >&2
+        exit 2
+    fi
+    STATES=("${SINGLE_STATE}")
+    STATE_MAPPING="${OUT_DIR}/state-mapping-${SINGLE_STATE}.txt"
+fi
+: > "${STATE_MAPPING}"
 
 expected_size_for_state() {
     local state="$1"
@@ -488,22 +520,34 @@ for state in "${STATES[@]}"; do
         if is_frontmost_pid "${app_pid}"; then
             post_frontmost="true"
         else
-            post_frontmost="false"
-            echo "错误：状态 ${state} 截图后前台进程校验失败（可能被抢焦）" >&2
-            kill "${app_pid}" 2>/dev/null || true
-            wait "${app_pid}" 2>/dev/null || true
-            exit 1
+            # screencapture 或其他系统进程可能在截图结束瞬间短暂抢焦；重新激活后再做一次严格复查。
+            osascript -e "tell application \"System Events\" to set frontmost of the first process whose unix id is ${app_pid} to true" >/dev/null 2>&1 || true
+            sleep 0.2
+            if is_frontmost_pid "${app_pid}"; then
+                post_frontmost="true-after-retry"
+            else
+                post_frontmost="false"
+                echo "错误：状态 ${state} 截图后前台进程校验失败（重试后仍被抢焦）" >&2
+                kill "${app_pid}" 2>/dev/null || true
+                wait "${app_pid}" 2>/dev/null || true
+                exit 1
+            fi
         fi
     fi
 
     printf "%s|frame=%sx%s|image=%sx%s|post_frontmost=%s|log=%s\n" \
         "${state}" "${window_w}" "${window_h}" "${image_w}" "${image_h}" "${post_frontmost}" "${state_log}" \
-        >> "${OUT_DIR}/state-mapping.txt"
+        >> "${STATE_MAPPING}"
 
     kill "${app_pid}" 2>/dev/null || true
     wait "${app_pid}" 2>/dev/null || true
     trap - EXIT
 done
+fi
+
+if [[ -n "${SINGLE_STATE}" ]]; then
+    echo "==> 完成单状态验收：${SINGLE_STATE}"
+    exit 0
 fi
 
 ORIGINAL_DARK_MODE="$(current_system_dark_mode)"

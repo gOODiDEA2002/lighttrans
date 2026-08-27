@@ -23,7 +23,7 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>个人工具，仅本机使用</string>
+	<string>Copyright © 2026 LightTrans contributors</string>
 	<key>NSServices</key>
 	<array>
 		<dict>

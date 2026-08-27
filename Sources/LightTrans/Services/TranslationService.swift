@@ -14,11 +14,37 @@ enum TranslationError: Error, Equatable {
 
 // 翻译服务：渲染提示词、调用 OpenAI 兼容流式接口、解析 SSE（详细设计第 6 节）
 struct TranslationService {
-    private let config: ConfigStore
+    static let connectionTestMaxTokens = 32
+
+    struct RequestConfiguration: Sendable {
+        let apiBaseURL: String
+        let modelName: String
+        let apiKey: String?
+        let maxTokens: Int
+    }
+
+    private let loadConfiguration: @Sendable () -> RequestConfiguration
+    private let session: URLSession
     private let logger = Logger(subsystem: "com.andy.lighttrans", category: "translation")
 
-    init(config: ConfigStore = .shared) {
-        self.config = config
+    init(config: ConfigStore = .shared, session: URLSession = .shared) {
+        self.loadConfiguration = {
+            RequestConfiguration(
+                apiBaseURL: config.apiBaseURL,
+                modelName: config.modelName,
+                apiKey: config.loadAPIKey(),
+                maxTokens: config.maxTokens
+            )
+        }
+        self.session = session
+    }
+
+    init(
+        session: URLSession,
+        loadConfiguration: @escaping @Sendable () -> RequestConfiguration
+    ) {
+        self.loadConfiguration = loadConfiguration
+        self.session = session
     }
 
     // 入口：返回一个陆续吐出译文片段、可能中途报错的异步序列（系统设计第 6 节、详细设计 11.2）
@@ -55,9 +81,10 @@ struct TranslationService {
                      template: String,
                      continuation: AsyncThrowingStream<String, Error>.Continuation) async throws {
         // 1. 读配置并校验
-        var baseURL = config.apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let model = config.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let apiKey = config.loadAPIKey(), !apiKey.isEmpty,
+        let configuration = loadConfiguration()
+        var baseURL = configuration.apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = configuration.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let apiKey = configuration.apiKey, !apiKey.isEmpty,
               !baseURL.isEmpty, !model.isEmpty else {
             throw TranslationError.notConfigured
         }
@@ -84,7 +111,7 @@ struct TranslationService {
         let body: [String: Any] = [
             "model": model,
             "stream": true,
-            "max_tokens": config.maxTokens,
+            "max_tokens": configuration.maxTokens,
             "messages": [["role": "user", "content": prompt]]
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -92,7 +119,7 @@ struct TranslationService {
         logger.info("翻译请求开始")
 
         // 4. 发起流式请求
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw TranslationError.badResponse("无有效的 HTTP 响应")
         }
@@ -107,6 +134,7 @@ struct TranslationService {
         }
 
         // 6. 逐行解析 SSE（详细设计 6.2）
+        var receivedContent = false
         for try await line in bytes.lines {
             try Task.checkCancellation()
             guard line.hasPrefix("data:") else { continue }
@@ -120,13 +148,17 @@ struct TranslationService {
                 // 坏行或无内容行跳过，不中断整个流
                 continue
             }
+            receivedContent = true
             continuation.yield(content)
+        }
+        guard receivedContent else {
+            throw TranslationError.badResponse("流式响应未包含有效内容")
         }
         logger.info("翻译请求结束")
     }
 
     // 轻量连通性探测接口（详细设计 13.2）
-    // 构造 max_tokens: 5 的非流式探测请求，超时 10 秒，支持取消，不写历史记录
+    // 构造 max_tokens: 32 的非流式探测请求，超时 10 秒，支持取消，不写历史记录
     func testConnection(baseURL: String, model: String, apiKey: String) async throws -> TimeInterval {
         var cleanBaseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -147,7 +179,7 @@ struct TranslationService {
         let body: [String: Any] = [
             "model": cleanModel,
             "stream": false,
-            "max_tokens": 5,
+            "max_tokens": Self.connectionTestMaxTokens,
             "messages": [["role": "user", "content": "Reply with OK."]]
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -155,7 +187,7 @@ struct TranslationService {
         let start = Date()
         let (data, response): (Data, URLResponse)
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch let urlError as URLError {
             if urlError.code == .cancelled {
                 throw CancellationError()
@@ -180,9 +212,14 @@ struct TranslationService {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = obj["choices"] as? [[String: Any]],
               let firstChoice = choices.first,
-              let message = firstChoice["message"] as? [String: Any],
-              let content = message["content"] as? String,
-              !content.isEmpty else {
+              let message = firstChoice["message"] as? [String: Any] else {
+            throw TranslationError.badResponse("接口返回格式异常")
+        }
+        let content = message["content"] as? String ?? ""
+        guard !content.isEmpty else {
+            if firstChoice["finish_reason"] as? String == "length" {
+                throw TranslationError.badResponse("测试输出 Token 不足，模型未返回正文")
+            }
             throw TranslationError.badResponse("接口返回格式异常")
         }
 

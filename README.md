@@ -1,116 +1,144 @@
 # 轻译（LightTrans）
 
-macOS 菜单栏翻译小工具：全局快捷键呼出浮动面板，输入文字后按预设提示词模板交给大模型翻译，流式显示译文。仅面向个人本机使用。
+轻译是一个 macOS 菜单栏翻译工具。应用通过用户配置的 OpenAI Chat Completions 兼容接口，同时生成直译与英文提示词转写结果，并支持全局快捷键、macOS 服务、历史记录和多设备 iCloud 云盘同步。
 
-## 项目状态
+当前版本为 `0.1.0`。项目提供源码构建方式，暂不提供经过 Developer ID 签名和 Apple 公证的二进制安装包。
 
-第一期（FR-1 至 FR-11）已完成并通过验收。设计文档见 docs/ 目录，验收记录见 docs/04-implementation-plan.md 第 2 节。
+![轻译翻译面板](docs/assets/v5/lighttrans_panel_done.png)
 
-## 功能概览（第一期）
+## 功能
 
-- 菜单栏常驻，不占用 Dock；默认快捷键 Option+T 呼出翻译面板。
-- 面板内输入文字，Cmd+Return 翻译，译文流式显示，一键复制。
-- 大模型接口可配置：接口地址、API Key、模型名、提示词模板、最大输出 token 均可在设置中修改，兼容一切 OpenAI 格式的服务（OpenAI、DeepSeek、通义、本地 Ollama 等）。
-- API Key 存入系统钥匙串；支持开机自启。
-- 每次翻译的原始输入与输出自动保存为历史记录，经 iCloud 云盘在多台电脑间同步，历史窗口按时间合并显示全部设备的记录（无需苹果开发者账号，采用"每设备一个只追加文件"的无冲突结构）。
+- 菜单栏常驻，不占用 Dock；默认使用 `Option+T` 呼出翻译面板。
+- 同时生成直译与英文提示词转写，两路结果独立流式显示。
+- 支持停止生成、结果复制、输入区高度调节和快捷入口。
+- 可配置接口地址、API Key、模型名、提示词模板和最大输出 Token。
+- API Key 存入 macOS 钥匙串；其他设置存入 UserDefaults。
+- 通过「轻译：打开面板」macOS 服务接收其他应用中的选中文字。
+- 历史记录采用 JSON Lines 格式，可通过 iCloud 云盘在多台 Mac 间合并显示。
+- 支持开机启动和全局快捷键重新录制。
 
-## 技术要点
+## 运行要求
 
-- Swift + SwiftUI，AppKit 管理状态栏与浮动面板；Swift Package Manager 工程。
-- 全局快捷键依赖 sindresorhus/KeyboardShortcuts。
-- 最低部署目标 macOS 14，开发与运行环境 macOS 15.7.4。
+- macOS 14 或更高版本。
+- 从源码构建时需要 Command Line Tools 和 Swift 6.1 或更高版本。
+- 模型服务需要符合本项目使用的 OpenAI Chat Completions 请求与响应格式。
 
-## 文档索引
+项目当前固定调用：
 
-| 文档 | 内容 |
-| --- | --- |
-| docs/01-requirements.md | 需求：功能清单、非功能指标、分期范围、验收口径 |
-| docs/02-system-design.md | 系统设计：架构、技术决策、数据流、铁律清单与待验证假设 |
-| docs/03-detailed-design.md | 详细设计：工程结构、各模块接口、界面规格、接口协议、错误映射、打包 |
-| docs/04-implementation-plan.md | 实施计划：编码任务清单 T1–T10 与逐项验收标准 |
-| docs/05-kickoff-prompt.md | 编码会话开工提示词模板与派活流程 |
+```text
+POST {Base URL}/chat/completions
+Authorization: Bearer {API Key}
+Content-Type: application/json
+```
+
+流式响应需要使用 SSE，并在 `choices[0].delta.content` 中返回文本片段。不同服务的兼容程度取决于其接口实现。
 
 ## 构建与安装
 
-环境要求：macOS 14 及以上；已安装 Command Line Tools 和 Swift 6.1 及以上版本。无需安装完整 Xcode。
-
-推荐直接执行一键脚本。脚本会构建 release 版本、安装或更新 `/Applications/LightTrans.app`，并重新启动应用；已有设置、API Key 和历史记录不会被删除。
+推荐从源码构建并安装到 `/Applications/LightTrans.app`：
 
 ```bash
 bash Scripts/install-app.sh
 ```
 
-如果 `/Applications` 需要管理员权限，脚本会在文件替换阶段请求系统密码。需要安装到其他目录时，可设置 `LIGHTTRANS_INSTALL_DIR`：
+脚本会执行 Release 构建、组装 `.app`、ad-hoc 签名、替换旧版本并重新启动应用。设置、钥匙串和历史记录位于应用包之外，更新应用不会删除这些数据。
+
+需要安装到其他目录时，可设置 `LIGHTTRANS_INSTALL_DIR`：
 
 ```bash
 LIGHTTRANS_INSTALL_DIR="$HOME/Applications" bash Scripts/install-app.sh
 ```
 
-只构建、不安装时执行：
+仅构建、不安装：
 
 ```bash
 bash Scripts/build-app.sh
 ```
 
-产物位于 `build/LightTrans.app`，采用 ad-hoc 本地签名。
-
-应用图标的源文件为 `Resources/AppIcon.png`。修改源图后，先重新生成 `.icns`，再构建：
-
-```bash
-bash Scripts/generate-app-icon.sh
-```
-
-首次启动仅在菜单栏出现图标（气泡样式），不出现在 Dock。
-
-仅本机使用，无需苹果开发者签名与公证；采用 ad-hoc 本地签名。
+产物位于 `build/LightTrans.app`。ad-hoc 签名只适合本机源码构建，不等同于 Developer ID 签名或 Apple 公证。
 
 ## 使用
 
-- 按 `Option+T`（或左键点菜单栏图标）呼出翻译面板；再按一次、按 `Esc`、或点击面板外部即隐藏。
-- 输入文字，按 `Cmd+Return` 翻译，译文流式显示；翻译中按钮变"停止"，可中断。
-- 点结果区"复制"按钮一键复制译文。
-- 右键菜单栏图标可打开"历史记录…"与"设置…"，或退出。
+1. 启动轻译。应用只在菜单栏显示 `translate` 图标。
+2. 右键菜单栏图标，打开「设置」。
+3. 填写接口地址、模型名和 API Key；按需调整两套提示词模板。
+4. 按 `Option+T` 或左键点击菜单栏图标打开面板。
+5. 输入文字后按 `Cmd+Return`，或点击「翻译」。
 
-## 配置
+翻译过程中可以停止请求。隐藏面板不会清空当前输入和结果。
 
-首次使用需在"设置"中填写接口信息（右键图标 → 设置…）：
+## 翻译选中文字
 
-- 接口地址（Base URL）、模型名、API Key（存入系统钥匙串）。
-- 提示词模板：用 `{{text}}` 表示待翻译的原文；未包含占位符时，原文会追加到模板末尾。
-- 最大输出 token（100–8000）：限制单次输出，防止误贴超长文本产生意外费用。
-- 全局快捷键：可重新录制。
-- 开机自启开关（应用需位于 /Applications）。
-- 历史记录开关与存储位置显示。
+安装应用后，支持 macOS 服务的来源应用可以把选中文字发送给轻译：
 
-兼容一切 OpenAI 格式的 chat/completions 接口（OpenAI、DeepSeek、通义、本地 Ollama 等），换厂商只需改设置。
+1. 在来源应用中选中文字。
+2. 从应用菜单的「服务」子菜单选择「轻译：打开面板」。
+3. 轻译打开面板，并在文字不超过 5,000 个 Swift `Character` 时自动启动两路请求。
 
-## 在第二台 Mac 上安装（用于多设备同步）
+部分 Electron 应用或自定义右键菜单不会显示系统服务。此时可使用应用主菜单中的「服务」，或复制文字后按 `Option+T` 手动粘贴。超过 5,000 个字符时只载入输入框，不自动发送请求。
 
-前提：第二台 Mac 登录**同一个 Apple ID** 且已开启 **iCloud 云盘**，否则历史文件不会互相同步。
+## 隐私与费用
 
-本应用采用 ad-hoc 本地签名，直接拷到别的电脑会被 macOS 拦截，二选一处理：
+- 轻译不包含遥测、账号体系或自有云端服务。
+- 输入文字、提示词模板和模型名会发送给设置中配置的模型服务。数据处理规则由对应服务提供方决定。
+- 一次普通翻译会并行发送直译和转写两个请求，模型费用通常高于单路请求。
+- 设置页的「测试连接」会发送一个最多生成 32 个 Token 的真实请求，可能产生少量费用。
+- API Key 存储在 macOS 钥匙串中，不写入 UserDefaults、历史文件或应用日志。
+- 历史记录默认开启，会保存完整原文、两路结果、模型名、设备名和状态。
+- 检测到 iCloud 云盘时，历史文件默认写入 `~/Library/Mobile Documents/com~apple~CloudDocs/LightTrans/history/`；否则写入 `~/Library/Application Support/LightTrans/history/`。
+- 历史文件是未额外加密的 JSON Lines 文本。处理敏感内容前，建议在设置中关闭历史记录，并核对所选模型服务的隐私政策。
 
-- 方式 A（推荐）：在第二台 Mac 上从源码构建（需已装 Swift 工具链），会自动在本机重新签名：
+## 多设备历史
 
-  ```bash
-  cd mac-translator
-  bash Scripts/install-app.sh
-  ```
+多台 Mac 使用同一个 Apple ID 并启用 iCloud 云盘时，每台设备只追加自己的 `history-{设备标识}.jsonl` 文件。历史窗口读取目录中的全部设备文件，按时间合并和去重。
 
-- 方式 B：把打好的 `LightTrans.app` 拷过去（隔空投送/U 盘/网络），在第二台 Mac 上去隔离标记并重新签名：
+iCloud 同步时效由 macOS 决定，应用不保证实时同步。真实跨设备占位文件下载仍属于待持续验证的能力边界。
 
-  ```bash
-  xattr -dr com.apple.quarantine /Applications/LightTrans.app
-  codesign --force --deep --sign - /Applications/LightTrans.app
-  open /Applications/LightTrans.app
-  ```
+## 开发与验证
 
-  若仍打不开，在访达中右键 App → 打开，弹窗中点"打开"放行一次。
+```bash
+swift test
+swift build
+bash Scripts/build-app.sh
+codesign --verify --deep --strict build/LightTrans.app
+git diff --check
+```
 
-装好后在第二台 Mac 的"设置"中同样填写接口地址、模型名、API Key（钥匙串每台机器独立）。每台电脑自动使用各自独立的历史文件（文件名后缀为各机器首次启动生成的设备标识），互不冲突；翻译后等 iCloud 同步（通常数秒至数分钟），任一台的历史窗口即可看到两台设备合并的记录。
+UI 验收脚本需要屏幕录制权限、`ffmpeg` 和可交互的 macOS 桌面环境：
 
-## 历史记录
+```bash
+bash Scripts/capture-ui-acceptance.sh
+```
 
-- 每次翻译结束（完成、手动停止、失败）追加一条记录，含原始输入、译文、时间、设备名、模型名、结束状态。
-- 记录存于 iCloud 云盘 `LightTrans/history/history-{设备标识}.jsonl`，由系统在多台电脑间同步；每台设备只写自己的文件，无同步冲突。未开启 iCloud 云盘的电脑自动退化为仅存本机（`~/Library/Application Support/LightTrans/history/`）。
-- 历史窗口按时间倒序合并显示全部设备记录，支持关键字过滤与复制。
+单独重跑一个失败状态：
+
+```bash
+bash Scripts/capture-ui-acceptance.sh --state history-long-device-model
+```
+
+## 文档
+
+| 文档 | 内容 |
+| --- | --- |
+| [需求文档](docs/01-requirements.md) | 功能范围、非功能要求与验收边界 |
+| [系统设计](docs/02-system-design.md) | 架构、技术决策和硬约束 |
+| [详细设计](docs/03-detailed-design.md) | 模块、接口、存储、网络和打包设计 |
+| [实施计划](docs/04-implementation-plan.md) | T1 至 T18 的实施与验收记录 |
+| [UI 视觉基准](docs/changes/ui-visual-consistency/v5-baseline.md) | 当前窗口尺寸、颜色和状态基准 |
+| [选中文字功能设计](docs/07-selection-translation-feature-design.md) | macOS 服务的能力边界与兼容性 |
+| [T17 验收记录](docs/08-selection-translation-acceptance.md) | 选中文字功能的测试结果 |
+| [GitHub 发布准备](docs/04-implementation-plan.md#t18-github-源码发布准备) | 源码发布准备与验收门槛 |
+
+`docs/ai/` 保存早期设计评审快照，其中未勾选项只表示当时的审查意见，不代表当前发布版本仍未完成。
+
+## 已知限制
+
+- 当前不提供经过 Developer ID 签名和 Apple 公证的安装包。
+- 仅支持 OpenAI Chat Completions 风格接口，不支持 Responses API 等其他协议。
+- 来源应用是否显示 macOS 服务由来源应用决定。
+- 历史记录没有应用层加密和删除界面，需要时可直接管理对应 JSONL 文件。
+- 跨设备 iCloud 占位文件下载尚未覆盖所有系统状态。
+
+## 许可证
+
+项目使用 [MIT License](LICENSE)。第三方依赖许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

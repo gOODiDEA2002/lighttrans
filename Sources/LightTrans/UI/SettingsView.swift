@@ -36,6 +36,8 @@ struct SettingsView: View {
     #endif
     @State private var selectedTab: SettingsTab = .api
     @State private var apiKey = ""
+    @State private var hasEditedAPIKey = false
+    @State private var apiKeySaveError: String?
     @State private var isKeyVisible = false
     @FocusState private var apiKeyFocused: Bool
     @State private var maxTokensText = ""
@@ -263,6 +265,15 @@ struct SettingsView: View {
                 )
                 .onChange(of: apiKeyFocused) { _, focused in
                     if !focused { saveAPIKey() }
+                }
+                .onChange(of: apiKey) { _, _ in
+                    if apiKeyFocused { hasEditedAPIKey = true }
+                }
+                if let apiKeySaveError {
+                    Text(apiKeySaveError)
+                        .font(.system(size: V5.captionFontSize))
+                        .foregroundColor(.red)
+                        .lineLimit(2)
                 }
             }
 
@@ -514,12 +525,20 @@ struct SettingsView: View {
     // MARK: - 辅助方法
 
     private func saveAPIKey() {
-        guard !isFixtureMode else { return }
+        guard !isFixtureMode, hasEditedAPIKey else { return }
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             config.deleteAPIKey()
+            apiKeySaveError = nil
+            hasEditedAPIKey = false
         } else {
-            try? config.saveAPIKey(trimmed)
+            do {
+                try config.saveAPIKey(trimmed)
+                apiKeySaveError = nil
+                hasEditedAPIKey = false
+            } catch {
+                apiKeySaveError = "API Key 保存失败，请重试"
+            }
         }
     }
 

@@ -1,4 +1,4 @@
-# 项目规则：mac-translator（轻译 / LightTrans）
+# 项目规则：LightTrans（轻译）
 
 本项目为 macOS 菜单栏翻译工具，处于"设计已定、按文档编码"阶段。
 

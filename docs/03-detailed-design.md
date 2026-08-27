@@ -1,7 +1,7 @@
 # 详细设计文档
 
-项目名：mac-translator（应用显示名：轻译 / LightTrans）
-文档版本：v1.6（2026-08-22）
+项目名：LightTrans（应用显示名：轻译）
+文档版本：v1.7（2026-08-27）
 关联文档：02-system-design.md（系统设计）、04-implementation-plan.md（实施计划）、07-selection-translation-feature-design.md（选中文字翻译功能设计）
 
 本文档是编码的直接依据。编码时如遇本文档未覆盖的决策点，停下补充设计并经确认后再继续，不得在代码中即兴决定。
@@ -9,19 +9,23 @@
 ## 1. 工程结构
 
 ```
-mac-translator/
-├── Package.swift                      # SPM 工程定义
+lighttrans/
+├── Package.swift                         # SPM 工程定义
 ├── Sources/
 │   └── LightTrans/
-│       ├── LightTransApp.swift        # 程序入口（@main），挂接 AppDelegate
-│       ├── AppDelegate.swift          # 状态栏、面板、设置窗口、快捷键监听的总管
+│       ├── LightTransApp.swift           # 程序入口（@main），挂接 AppDelegate
+│       ├── AppDelegate.swift             # 状态栏、窗口、快捷键与 macOS 服务
 │       ├── SelectionServiceProvider.swift # macOS 服务：读取外部应用发送的纯文本选区
 │       ├── UI/
-│       │   ├── FloatingPanel.swift    # NSPanel 子类：浮动面板窗体
-│       │   ├── TranslatePanelView.swift  # SwiftUI：面板内容
-│       │   ├── PanelViewModel.swift   # 面板状态与翻译调度（ObservableObject）
-│       │   ├── SettingsView.swift     # SwiftUI：设置窗口内容
-│       │   └── HistoryWindowView.swift   # SwiftUI：历史窗口内容
+│       │   ├── DesignTokens.swift        # v5 视觉 token
+│       │   ├── FloatingPanel.swift       # NSPanel 子类：浮动面板窗体
+│       │   ├── HistoryWindowView.swift   # SwiftUI：历史窗口
+│       │   ├── PanelInputHeightMath.swift # 输入高度计算
+│       │   ├── PanelViewModel.swift      # 面板状态与翻译调度
+│       │   ├── SettingsView.swift        # SwiftUI：设置窗口
+│       │   ├── TextEditorScrollConfigurator.swift # 文本编辑器滚动配置
+│       │   ├── TranslatePanelView.swift  # SwiftUI：翻译面板
+│       │   └── UIAcceptanceState.swift   # Debug-only UI 验收状态
 │       ├── Services/
 │       │   └── TranslationService.swift  # 接口调用与 SSE 解析
 │       ├── Storage/
@@ -30,13 +34,22 @@ mac-translator/
 │           ├── ConfigStore.swift      # 配置读写（UserDefaults）
 │           └── KeychainHelper.swift   # 钥匙串读写
 ├── Resources/
-│   └── Info.plist                     # 打包用属性列表模板
+│   ├── AppIcon.icns                      # 应用图标
+│   ├── AppIcon.png                       # 图标源文件
+│   └── Info.plist                        # 打包用属性列表模板
 ├── Scripts/
-│   └── build-app.sh                   # 构建并打包 .app 的脚本
+│   ├── build-app.sh                      # 构建并打包 .app
+│   ├── capture-ui-acceptance.sh          # UI 截图验收
+│   ├── generate-app-icon.sh              # 生成 ICNS
+│   └── install-app.sh                    # 安装或更新应用
 ├── Patches/
 │   └── KeyboardShortcuts-2.4.0-remove-previews.patch  # 移除依赖中的 Xcode 预览代码
+├── Tests/LightTransTests/                # 单元测试
 ├── docs/                              # 设计文档（本目录）
-└── README.md
+├── CHANGELOG.md
+├── LICENSE
+├── README.md
+└── SECURITY.md
 ```
 
 ### 1.1 Package.swift 要点
@@ -94,7 +107,7 @@ enum KeychainHelper {
 }
 ```
 
-实现要点：save 采用先删后加（SecItemDelete 后 SecItemAdd），避免处理"已存在则更新"的分支；读取失败一律返回 nil，不抛错。
+实现要点：save 先调用 `SecItemUpdate` 原子更新；仅在条目不存在时调用 `SecItemAdd`。禁止在新增成功前删除旧值。读取失败返回 nil，写入失败向调用方抛出错误并由设置界面提示。设置窗口只有在 API Key 被实际编辑后才写入或删除，打开后直接关闭不会覆盖已有条目。
 
 ## 3. 程序入口与 AppDelegate
 
@@ -304,7 +317,7 @@ enum TranslationError: Error {
 | CFBundleShortVersionString | 0.1.0 |
 | LSUIElement | true（铁律 L-2） |
 | LSMinimumSystemVersion | 14.0 |
-| NSHumanReadableCopyright | 个人工具，仅本机使用 |
+| NSHumanReadableCopyright | Copyright © 2026 LightTrans contributors |
 
 ### 8.2 build-app.sh 步骤
 
@@ -346,7 +359,7 @@ enum TranslationError: Error {
 每行一条独立 JSON，UTF-8 编码，字段如下：
 
 ```json
-{"id":"550E8400-...","time":"2026-07-13T21:35:02+08:00","device":"Andy 的 MacBook Pro","model":"deepseek-chat","status":"done","input":"原始输入全文","output":"译文全文"}
+{"id":"550E8400-...","time":"2026-07-13T21:35:02+08:00","device":"示例 MacBook Pro","model":"deepseek-chat","status":"done","input":"原始输入全文","output":"译文全文"}
 ```
 
 | 字段 | 类型 | 说明 |
@@ -548,10 +561,10 @@ struct HistoryRecord: Codable, Identifiable {
   - API Key 提供明暗文切换（`eye` / `eye.slash`），仅在失焦或关闭时持久化。
   - 连通性测试契约（`TranslationService.testConnection`）：
     - 请求：`POST {baseURL}/chat/completions`，Header 携带 `Authorization: Bearer {apiKey}` 与 `Content-Type: application/json`；
-    - 请求体：`stream: false`，`max_tokens: 5`，`messages: [{"role": "user", "content": "Reply with OK."}]`；
+    - 请求体：`stream: false`，`max_tokens: 32`，`messages: [{"role": "user", "content": "Reply with OK."}]`；32 个输出 Token 可避免推理模型将极小额度全部用于推理，导致正文为空；
     - 超时：10 秒；支持调用端 `Task.cancel()` 立即中断底层 URLSession 请求；
     - 成功判定：收到 HTTP 2xx 且能成功解码 `choices[0].message.content`（非空字符串），记录请求发出至解析完成的毫秒耗时（如 `185ms`）；
-    - 错误归类：非 2xx 与网络错误按第 7 节映射为 `TranslationError`；2xx 但 JSON 不符合契约映射为 `badResponse`；
+    - 错误归类：非 2xx 与网络错误按第 7 节映射为 `TranslationError`；2xx 但 JSON 不符合契约映射为 `badResponse`；当正文为空且 `finish_reason` 为 `length` 时，明确提示测试输出 Token 不足；
     - 隔离性：测试仅使用当前表单内存中正在编辑的值，**不保存至 UserDefaults / Keychain，绝对不调用 HistoryStore 写入历史记录**；
     - 界面反馈：按钮旁展示进度指示器或「当前配置连接成功 (xxx ms)」/ 红色错误文案，并注明「测试将发送极简请求，可能产生极微量 API 费用」；`SettingsView` 持有独立测试 Task，窗口关闭或重新发起测试时自动取消。
 - **提示词模板**：同页纵向完整展示「直译提示词模板」与「转写提示词模板」，各带 `{{text}}` 校验徽章（绿色就绪 / 橙色缺失）。

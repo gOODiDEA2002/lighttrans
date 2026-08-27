@@ -1,6 +1,6 @@
 # 选中文字翻译功能设计
 
-项目名：mac-translator（应用显示名：轻译 / LightTrans）
+项目名：LightTrans（应用显示名：轻译）
 文档版本：v1.0（2026-08-22）
 状态：已实现并验收通过
 关联文档：01-requirements.md（需求）、02-system-design.md（系统设计）、03-detailed-design.md（详细设计）、04-implementation-plan.md（实施计划）
@@ -361,7 +361,9 @@ enum SelectionAction {
 - `ConfigStore` 和 `KeychainHelper` 的存储职责不变。
 - 现有菜单栏、面板和窗口视觉基准不因本功能改变。
 
-## 12. 待验证假设
+## 12. 假设与验证结果
+
+以下假设均已在 T17 范围内完成验证并成立；来源应用不显示系统服务仍按兼容性边界处理。详细证据见 `08-selection-translation-acceptance.md`。
 
 | 编号 | 假设 | 验证方法 | 不成立时的处理 |
 | --- | --- | --- | --- |

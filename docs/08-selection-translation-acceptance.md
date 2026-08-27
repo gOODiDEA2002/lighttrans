@@ -1,6 +1,6 @@
 # T17 选中文字翻译验收记录
 
-项目名：mac-translator（轻译 / LightTrans）
+项目名：LightTrans（应用显示名：轻译）
 验收日期：2026-08-22
 状态：验收通过
 关联文档：`03-detailed-design.md` 第 14 节、`04-implementation-plan.md` T17、`07-selection-translation-feature-design.md`
