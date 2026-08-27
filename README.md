@@ -2,7 +2,7 @@
 
 轻译是一个 macOS 菜单栏翻译工具。应用通过用户配置的 OpenAI Chat Completions 兼容接口，同时生成直译与英文提示词转写结果，并支持全局快捷键、macOS 服务、历史记录和多设备 iCloud 云盘同步。
 
-当前版本为 `0.1.0`。项目提供源码构建方式和适用于 Apple Silicon Mac 的未签名预览版；预览版采用 ad-hoc 签名，未经过 Developer ID 签名和 Apple 公证。
+当前版本为 `0.1.1`。项目提供源码构建方式和适用于 Apple Silicon Mac 的未签名预览版；预览版采用 ad-hoc 签名，未经过 Developer ID 签名和 Apple 公证。
 
 ![轻译翻译面板](docs/assets/v5/lighttrans_panel_done.png)
 
@@ -37,8 +37,10 @@ Content-Type: application/json
 
 从 [GitHub Releases](https://github.com/gOODiDEA2002/lighttrans/releases) 下载以下文件：
 
-- `LightTrans-v0.1.0-macos-arm64.zip`
+- `LightTrans-v0.1.1-macos-arm64.zip`
 - `SHA256SUMS`
+
+`v0.1.0` 预览版存在打开「通用与快捷键」时闪退的问题，已在 `v0.1.1` 修复，不应继续使用旧版本。
 
 该预览版仅支持 Apple Silicon Mac，适用于 M1、M2、M3、M4 及后续同架构机型。Intel Mac 需要按下一节从源码构建。
 
@@ -50,7 +52,7 @@ shasum -a 256 -c SHA256SUMS
 
 校验通过后按以下步骤安装：
 
-1. 解压 `LightTrans-v0.1.0-macos-arm64.zip`。
+1. 解压 `LightTrans-v0.1.1-macos-arm64.zip`。
 2. 将 `LightTrans.app` 移入「应用程序」文件夹。
 3. 双击启动。若 macOS 阻止打开，进入「系统设置 → 隐私与安全性」，在安全提示处选择「仍要打开」。
 

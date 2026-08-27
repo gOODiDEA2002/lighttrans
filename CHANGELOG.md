@@ -2,6 +2,16 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.1.1] - 2026-08-27
+
+### 修复
+
+- 修复 GitHub Release 预览版打开「通用与快捷键」时因 `KeyboardShortcuts` 资源包定位错误而闪退的问题。
+
+### 验证
+
+- 发布流程同时校验打包前和 ZIP 解压后的资源位置、应用签名、处理器架构与 SHA-256。
+
 ## [0.1.0] - 2026-08-27
 
 ### 新增
