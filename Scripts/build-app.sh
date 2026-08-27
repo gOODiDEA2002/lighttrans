@@ -56,8 +56,8 @@ fi
 # 直接运行 SwiftPM 产物和单元测试时仍回退到原有 Bundle.module。
 if grep -q 'NSLocalizedString(self, bundle: \.module, comment: self)' "${KEYBOARD_SHORTCUTS_UTILITIES}"; then
     echo "==> 调整 KeyboardShortcuts 的应用资源定位"
-    git -C "${KEYBOARD_SHORTCUTS_CHECKOUT}" apply --check "${KEYBOARD_SHORTCUTS_RESOURCES_PATCH}"
-    git -C "${KEYBOARD_SHORTCUTS_CHECKOUT}" apply "${KEYBOARD_SHORTCUTS_RESOURCES_PATCH}"
+    git -C "${KEYBOARD_SHORTCUTS_CHECKOUT}" apply --unidiff-zero --check "${KEYBOARD_SHORTCUTS_RESOURCES_PATCH}"
+    git -C "${KEYBOARD_SHORTCUTS_CHECKOUT}" apply --unidiff-zero "${KEYBOARD_SHORTCUTS_RESOURCES_PATCH}"
 fi
 if ! grep -q 'NSLocalizedString(self, bundle: \.keyboardShortcutsResources, comment: self)' "${KEYBOARD_SHORTCUTS_UTILITIES}"; then
     echo "错误：KeyboardShortcuts 资源定位补丁未成功应用" >&2
