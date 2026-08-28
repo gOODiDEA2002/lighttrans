@@ -287,7 +287,8 @@
   - App 与 CLI 的严格签名、`arm64` 架构、版本、运行时依赖和 ZIP 往返校验通过；
   - 现有面板、设置、历史、菜单栏和 macOS 服务行为无回归；
   - 工作区只包含 T21 与已确认文档范围内的变更。
-- 实施结果（2026-08-28）：代码与本机技术验收完成，用户已确认验收并进入提交收尾。60/60 单元与进程测试通过；其中 50 个独立进程并发追加无丢行或坏 JSON，20 个独立进程并发首次启动得到同一 `deviceID`，锁超时、`SIGINT`、`SIGKILL` 和 v1/v2 合并均通过。Release CLI 使用 App 已保存的 UserDefaults 与钥匙串完成 `literal`、`rewrite`、默认 `both` 三种真实请求；对应 iCloud v2 历史分别只包含所请求路由，`SIGINT` 返回 `130` 并写一条 `stopped` 历史，`EPIPE` 返回 `70` 并停止请求。警告即错误构建、App/CLI 严格签名、`arm64`、版本、运行时依赖、ZIP 往返、安装与卸载脚本，以及面板、设置、历史三个代表状态的视觉回归通过。更换 API 供应商后，`literal`、`rewrite`、默认 `both` 三种真实请求再次通过，历史记录的模式与路由输出正确。尚未执行「Release App 与多个 Release CLI 同时写真实 iCloud 目录」和第二台 Mac 的跨设备合并；这两项保留为真机后续验收，不影响临时目录中的进程安全结论。本任务未安装到用户 PATH，未打 Tag、未推送、未发布。
+- 实施结果（2026-08-28）：代码与本机技术验收完成，用户已确认验收。60/60 单元与进程测试通过；其中 50 个独立进程并发追加无丢行或坏 JSON，20 个独立进程并发首次启动得到同一 `deviceID`，锁超时、`SIGINT`、`SIGKILL` 和 v1/v2 合并均通过。Release CLI 使用 App 已保存的 UserDefaults 与钥匙串完成 `literal`、`rewrite`、默认 `both` 三种真实请求；对应 iCloud v2 历史分别只包含所请求路由，`SIGINT` 返回 `130` 并写一条 `stopped` 历史，`EPIPE` 返回 `70` 并停止请求。警告即错误构建、App/CLI 严格签名、`arm64`、版本、运行时依赖、ZIP 往返、安装与卸载脚本，以及面板、设置、历史三个代表状态的视觉回归通过。更换 API 供应商后，`literal`、`rewrite`、默认 `both` 三种真实请求再次通过，历史记录的模式与路由输出正确。尚未执行「Release App 与多个 Release CLI 同时写真实 iCloud 目录」和第二台 Mac 的跨设备合并；这两项保留为真机后续验收，不影响临时目录中的进程安全结论。
+- 发布结果（2026-08-28）：`v0.2.0` Tag 指向发布提交 `45398b1`；[Release Preview](https://github.com/gOODiDEA2002/lighttrans/actions/runs/33154179849) 和两个 [CI](https://github.com/gOODiDEA2002/lighttrans/actions/runs/33154179836) [工作流](https://github.com/gOODiDEA2002/lighttrans/actions/runs/33154179782) 均通过。[GitHub Pre-release](https://github.com/gOODiDEA2002/lighttrans/releases/tag/v0.2.0) 已上传 App 与 CLI 共用的 `arm64` ZIP 和 `SHA256SUMS`；线上 ZIP 为 3,002,189 字节，SHA-256 为 `47fe76f96d4577f51488646d8390b3750ef0ddf7d4501a147d98cab6f5b65bed`。本机 `/Applications/LightTrans.app` 已从 `0.1.1` 更新至 `0.2.0`，`~/.local/bin/lt` 已安装并指向应用包内 CLI；安装后使用实际模型完成一次直译请求，对应 iCloud 历史记录正确。未修改 Shell 配置。
 
 ## 2. 总验收记录（T10 时填写）
 
