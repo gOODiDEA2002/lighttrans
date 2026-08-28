@@ -2,7 +2,7 @@
 
 轻译是一个面向中文提示词的 macOS 菜单栏工具。应用把中文想法同时转换为两种英文结果：一份保留原意的直译，以及一份结构更清晰、可直接交给大模型使用的英文提示词。主要用途是减少中文需求交给大模型时的表达偏差，不以通用多语言翻译为主要目标。
 
-当前版本为 `0.2.0`。项目提供源码构建方式和适用于 Apple Silicon Mac 的未签名预览版；预览版采用 ad-hoc 签名，未经过 Developer ID 签名和 Apple 公证。
+当前版本为 `0.2.1`。项目提供源码构建方式和适用于 Apple Silicon Mac 的未签名预览版；预览版采用 ad-hoc 签名，未经过 Developer ID 签名和 Apple 公证。
 
 ![轻译翻译面板](docs/assets/v5/lighttrans_panel_done_zh_en.png)
 
@@ -66,10 +66,10 @@ Content-Type: application/json
 
 从 [GitHub Releases](https://github.com/gOODiDEA2002/lighttrans/releases) 下载以下文件：
 
-- `LightTrans-v0.2.0-macos-arm64.zip`
+- `LightTrans-v0.2.1-macos-arm64.zip`
 - `SHA256SUMS`
 
-`v0.1.0` 预览版存在打开「通用与快捷键」时闪退的问题，已在 `v0.1.1` 修复。`v0.2.0` 增加 `lt` 命令，旧版本不包含该命令。
+`v0.1.0` 预览版存在打开「通用与快捷键」时闪退的问题，已在 `v0.1.1` 修复。`v0.2.0` 增加 `lt` 命令，但通过 PATH 启动时 `lt --version` 会错误显示 `development`，已在 `v0.2.1` 修复。
 
 该预览版仅支持 Apple Silicon Mac，适用于 M1、M2、M3、M4 及后续同架构机型。Intel Mac 需要按下一节从源码构建。
 
@@ -81,7 +81,7 @@ shasum -a 256 -c SHA256SUMS
 
 校验通过后按以下步骤安装：
 
-1. 解压 `LightTrans-v0.2.0-macos-arm64.zip`。
+1. 解压 `LightTrans-v0.2.1-macos-arm64.zip`。
 2. 将 `LightTrans.app` 移入「应用程序」文件夹。
 3. 双击启动。若 macOS 阻止打开，进入「系统设置 → 隐私与安全性」，在安全提示处选择「仍要打开」。
 

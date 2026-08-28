@@ -326,7 +326,7 @@ enum TranslationError: Error {
 | CFBundleIdentifier | com.andy.lighttrans |
 | CFBundleName / CFBundleDisplayName | LightTrans / 轻译 |
 | CFBundleExecutable | LightTrans |
-| CFBundleShortVersionString | 0.2.0 |
+| CFBundleShortVersionString | 0.2.1 |
 | LSUIElement | true（铁律 L-2） |
 | LSMinimumSystemVersion | 14.0 |
 | NSHumanReadableCopyright | Copyright © 2026 LightTrans contributors |

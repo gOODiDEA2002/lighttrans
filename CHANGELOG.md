@@ -2,6 +2,17 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.2.1] - 2026-08-28
+
+### 修复
+
+- 修复通过 PATH 中的 `lt` 符号链接启动时，`lt --version` 错误显示 `development` 的问题。
+
+### 验证
+
+- 增加通过 PATH 符号链接启动 CLI 的进程级回归测试。
+- 61 项单元与进程测试和 CLI 告警即错误构建通过。
+
 ## [0.2.0] - 2026-08-28
 
 ### 新增
