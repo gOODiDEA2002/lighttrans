@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import LightTransCore
 
@@ -82,7 +83,13 @@ struct LightTransCLI {
     }
 
     private static func cliVersion() -> String {
-        let executableURL = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+        var bufferSize: UInt32 = 0
+        _NSGetExecutablePath(nil, &bufferSize)
+        var buffer = [CChar](repeating: 0, count: Int(bufferSize))
+        guard _NSGetExecutablePath(&buffer, &bufferSize) == 0 else {
+            return "development"
+        }
+        let executableURL = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath()
         let bundleInfoURL = executableURL
             .deletingLastPathComponent()
             .deletingLastPathComponent()

@@ -14,6 +14,43 @@ final class CLIExecutableTests: XCTestCase {
         XCTAssertEqual(version.stderr, "")
     }
 
+    func testVersionResolvesAppInfoWhenLaunchedThroughPATHSymlink() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LightTransCLIVersionTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let helpers = root.appendingPathComponent("LightTrans.app/Contents/Helpers", isDirectory: true)
+        let commands = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: helpers, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: commands, withIntermediateDirectories: true)
+
+        let packagedCLI = helpers.appendingPathComponent("lt")
+        try FileManager.default.copyItem(at: try cliExecutableURL(), to: packagedCLI)
+        let infoURL = root.appendingPathComponent("LightTrans.app/Contents/Info.plist")
+        let info: [String: Any] = ["CFBundleShortVersionString": "9.8.7"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: infoURL)
+
+        let commandLink = commands.appendingPathComponent("lt")
+        try FileManager.default.createSymbolicLink(at: commandLink, withDestinationURL: packagedCLI)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["lt", "--version"]
+        process.environment = ["PATH": commands.path]
+        process.standardInput = FileHandle.nullDevice
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self), "9.8.7\n")
+        XCTAssertEqual(String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self), "")
+    }
+
     func testUnknownOptionReturnsUsageError() throws {
         let result = try runCLI(arguments: ["--unknown"])
         XCTAssertEqual(result.status, 2)
