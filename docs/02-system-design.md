@@ -1,44 +1,47 @@
 # 系统设计文档
 
 项目名：LightTrans（应用显示名：轻译）
-文档版本：v1.3（2026-08-27）
-关联文档：01-requirements.md（需求）、03-detailed-design.md（详细设计）、07-selection-translation-feature-design.md（选中文字翻译功能设计）
+文档版本：v1.4（2026-08-28）
+关联文档：01-requirements.md（需求）、03-detailed-design.md（详细设计）、07-selection-translation-feature-design.md（选中文字翻译功能设计）、10-command-line-interface-detailed-design.md（CLI 详细设计）
 
 ## 1. 总体架构
 
-应用为单进程 macOS 菜单栏程序，内部分为四层。术语说明：下文的"层"只是代码分组方式，指互相之间通过明确的接口调用、不直接翻动对方内部数据的几组代码。
+产品包含 macOS 菜单栏 App 与独立 CLI 两个进程入口。两种入口通过 `LightTransCore` 共用完整翻译工作流；App 负责窗口与系统集成，CLI 负责参数、终端输出和信号。术语说明：下文的「层」只是代码分组方式，指互相之间通过明确接口调用、不直接修改对方内部数据的代码组。
 
 ```mermaid
 flowchart TB
-    subgraph UI[界面层]
+    subgraph APP[LightTrans App]
         A[状态栏图标 StatusItem]
         B[浮动翻译面板 FloatingPanel]
         C[设置窗口 SettingsWindow]
         C2[历史窗口 HistoryWindow]
+        J[选中文字服务 SelectionServiceProvider]
     end
-    subgraph SVC[服务层]
-        D[TranslationService<br>拼提示词 / 调接口 / 解析流式返回]
+    subgraph CLI[lt CLI]
+        K[参数与 stdin]
+        L[stdout / stderr / SIGINT]
     end
-    subgraph CFG[配置与存储层]
-        E[ConfigStore<br>UserDefaults 读写]
-        F[KeychainHelper<br>钥匙串读写 API Key]
-        I[HistoryStore<br>历史记录追加与合并读取<br>落盘于 iCloud 云盘文件夹]
+    subgraph CORE[LightTransCore]
+        W[TranslationWorkflow<br>模式 / 调度 / 取消 / 聚合 / 历史]
+        D[TranslationService<br>提示词 / HTTP / SSE]
+        E[SharedConfigurationProvider<br>UserDefaults + Keychain]
+        I[ProcessSafeHistoryStore<br>跨进程串行追加与合并读取]
     end
     subgraph SYS[系统集成层]
         G[全局快捷键<br>KeyboardShortcuts 库]
         H[开机自启<br>SMAppService]
-        J[选中文字服务<br>SelectionServiceProvider]
     end
-    B --> D
-    B --> I
+    B --> W
+    K --> W
+    W --> D
+    W --> E
+    W --> I
     C2 --> I
-    D --> E
-    D --> F
     C --> E
-    C --> F
     C --> H
     G --> B
     J --> B
+    L --> K
     A --> B
     A --> C
     A --> C2
@@ -48,12 +51,12 @@ flowchart TB
 
 | 层 | 组件 | 职责 |
 | --- | --- | --- |
-| 界面层 | AppDelegate、FloatingPanel、TranslatePanelView、SettingsView、HistoryWindowView | 状态栏图标与菜单、面板显示与隐藏、设置窗口、历史窗口、所有用户交互 |
-| 服务层 | TranslationService | 渲染提示词模板、构造并发送 HTTP 请求、解析流式返回、错误归类 |
-| 配置与存储层 | ConfigStore、KeychainHelper、HistoryStore | 配置项的读写与默认值；API Key 的钥匙串存取；历史记录的追加写入与多设备文件的合并读取 |
-| 系统集成层 | KeyboardShortcuts（第三方库）、SMAppService（系统框架）、SelectionServiceProvider（AppKit Services） | 全局快捷键注册与录制；开机自启注册；接收来源应用通过 macOS 服务发送的纯文本选区 |
+| App 适配层 | AppDelegate、FloatingPanel、TranslatePanelView、SettingsView、HistoryWindowView、PanelViewModel | 状态栏、窗口、剪贴板、UI 状态与 Core 事件映射 |
+| CLI 适配层 | LightTransCLI、CLIOptions、CLIInputReader、CLIOutputWriter、SignalCoordinator | 参数、标准输入、文本/JSON/NDJSON、标准错误、退出码与信号 |
+| 共享核心层 | TranslationWorkflow、TranslationService、SharedConfigurationProvider、ProcessSafeHistoryStore | 配置快照、模型请求、路由、取消、聚合和历史记录 |
+| 系统集成层 | KeyboardShortcuts、SMAppService、SelectionServiceProvider | 快捷键、开机自启与 macOS 服务选区 |
 
-依赖方向自上而下：界面层调用服务层与配置层；服务层调用配置层；配置层不依赖任何其他层。禁止反向调用。
+依赖方向固定为 App/CLI → `LightTransCore` → Foundation、Security、Darwin。Core 不依赖 AppKit、SwiftUI 或 KeyboardShortcuts；App 和 CLI 不得分别实现业务调度与历史聚合。
 
 ## 2. 关键技术决策
 
@@ -68,43 +71,49 @@ flowchart TB
 | D-7 | 开机自启用 SMAppService.mainApp（macOS 13 起的系统官方接口） | 无需辅助程序，一行注册一行注销 |
 | D-8 | 源码公开；本机构建和 GitHub 未签名预览版均采用 ad-hoc 签名 | ad-hoc 签名不等同于 Developer ID 签名和 Apple 公证；预览版必须显式标注安全边界，不作为正式签名发行版 |
 | D-9 | 历史记录经 iCloud 云盘文件夹（`~/Library/Mobile Documents/com~apple~CloudDocs/`，即用户在访达中看到的"iCloud 云盘"）同步，不使用 CloudKit | CloudKit（苹果面向应用的云数据库服务）需要付费开发者账号的授权，本项目无开发者账号；而 iCloud 云盘文件夹对程序而言就是一个由系统自动同步的普通文件夹，写文件不需要任何账号资质 |
-| D-10 | 历史文件采用"每设备一个只追加文件（JSON Lines 格式，即每行一条独立 JSON 记录）+ 读取时合并"的结构 | 同步冲突源于多端写同一文件；改为每个文件仅有唯一写入者、且只追加不修改，冲突从结构上消除。合并排序在读取时完成，代价可忽略（个人翻译量级） |
+| D-10 | 历史采用「每设备一个逻辑写入文件（JSON Lines）+ 同设备进程锁 + 读取时合并」的结构 | 不同设备不写同一文件；同一设备上的 App 与 CLI 使用 `flock` 和 `O_APPEND` 串行追加。旧版文件只读，新版写 v2 文件。 |
 | D-11 | 一次翻译产出两段结果（直译 + 转写），对应两个可各自配置的提示词，两路请求并行发出、各自流式显示（增量 v1.1，详见详细设计第 11 节） | 直译看字面译法、转写做提示词工程改写，二者对同一原文互不依赖；并行发出让两段同时到达，用户无需等第一段结束。代价是单次翻译发两个请求、费用约翻倍，个人低频使用可接受 |
 | D-12 | 选中文字的第一阶段入口采用主应用声明的 macOS 服务，只接收纯文本，不返回替换内容 | macOS 服务能通过请求专用 pasteboard 传递选区，不需要模拟复制或申请「辅助功能」权限；无返回值服务也不需要来源应用等待模型结果 |
 | D-13 | 外部选区采用「最新请求优先」；已有翻译先停止并写入 `stopped` 历史，再开始新请求 | 直接取消并递增现有代次会让旧任务跳过历史写入；先完成停止状态保存可维持 FR-10 的完整记录规则 |
 | D-14 | 选区不超过 `5,000` 个 Swift `Character` 时自动执行双路翻译；超过时只载入面板 | 现有 `maxTokens` 只限制结果长度，不能阻止误选长文产生两路输入费用；字符数判断无需引入模型专属分词依赖 |
 | D-15 | `v0.1.0` 通过 GitHub Actions 构建 Apple Silicon（`arm64`）ZIP，并以 Pre-release 发布 | Tag 构建可复现且与源码一一对应；附件附带 SHA-256，工作流校验 Tag、应用版本、签名和处理器架构后才允许上传 |
+| D-16 | CLI 采用独立可执行文件 `lt`，与 App 共用 `LightTransCore.TranslationWorkflow` | 保证除入口与呈现外的业务行为只有一份实现；App 未运行时 CLI 仍可工作 |
+| D-17 | CLI 支持 `literal`、`rewrite`、`both`，默认 `both`；UI 固定使用 `both` | 单路调用只执行对应请求，双路保持现有并行语义；聚合只计算已请求路由 |
+| D-18 | CLI 嵌入 `LightTrans.app/Contents/Helpers/lt` 并随 App 一起签名、校验和发布 | 防止 App、Core 与 CLI 版本分离；命令安装只创建指向包内 CLI 的安全符号链接 |
 
 ## 3. 核心数据流
 
-一次翻译的完整链路：
+一次翻译的共享链路：
 
 ```mermaid
 sequenceDiagram
-    participant U as 用户
-    participant P as 翻译面板
+    participant E as App / lt 入口
+    participant W as TranslationWorkflow
+    participant C as 共享配置
     participant S as TranslationService
-    participant C as 配置层
     participant M as 大模型接口
+    participant H as ProcessSafeHistoryStore
 
-    U->>P: 按 Option+T 呼出，输入文字，按 Cmd+Return
-    P->>S: translate(text)
-    S->>C: 读取接口地址/密钥/模型名/模板/max_tokens
+    E->>W: run(text, mode)
+    W->>C: 读取一次请求配置快照
+    W->>S: 启动全部已请求路由
     S->>S: 模板中 {{text}} 替换为输入文字
     S->>M: POST {baseURL}/chat/completions（stream=true）
     loop 流式返回
         M-->>S: SSE 数据行（每行含一小段译文）
-        S-->>P: 逐段吐出译文片段
-        P-->>U: 结果区追加显示
+        S-->>W: 路由片段
+        W-->>E: 串行 TranslationEvent
     end
     M-->>S: data:[DONE] 结束标记
-    S-->>P: 流结束
-    U->>P: 点击复制，译文入剪贴板
+    W->>C: 读取结束时历史开关
+    W->>H: 追加一条聚合历史
+    H-->>W: 写入完成、禁用或失败
+    W-->>E: finished(summary)
 ```
 
 说明：SSE（Server-Sent Events）是一种服务器分批推送文本的约定格式，响应体由若干以 `data: ` 开头的行组成，`data: [DONE]` 表示结束。解析细节见详细设计第 6 节。
 
-翻译结束后（完成、手动停止或失败），面板将本次的原始输入、输出、状态等信息交给 HistoryStore 追加写入本机专属的历史文件；该文件位于 iCloud 云盘文件夹内，由系统自动同步至其他电脑。历史窗口打开时读入文件夹内全部设备的历史文件并按时间合并展示。细节见详细设计第 10 节。
+翻译结束后（完成、停止或失败），共享工作流构造历史并交给进程安全的 HistoryStore。新 App 与 CLI 追加 v2 文件；旧文件保持只读兼容。历史窗口读入全部设备的 v1/v2 文件并按时间合并展示。细节见 CLI 详细设计第 12 节。
 
 选中文字触发第一阶段服务时，数据流如下：
 
@@ -144,13 +153,19 @@ sequenceDiagram
 | L-5 | API Key 只能经 KeychainHelper 读写（kSecClassGenericPassword 类型），禁止出现在 UserDefaults、日志与任何源码文件中 | 需求 FR-7 |
 | L-6 | 提示词模板占位符固定为 `{{text}}`，替换采用纯字符串替换，不做任何模板语法解析 | 保持实现最简 |
 | L-7 | 无付费开发者账号：禁止使用任何需要 iCloud 授权（entitlement）的能力（CloudKit、NSUbiquitousKeyValueStore、专属 iCloud 容器等），历史同步只允许走 iCloud 云盘文件夹的普通文件读写 | 需求文档第 2 节；苹果规定 iCloud 授权仅对付费开发者账号开放 |
-| L-8 | 历史文件单写者原则：每台设备只允许写入以本机设备标识命名的历史文件，永远只追加、不修改、不删除；禁止任何跨设备写同一文件的实现 | 决策 D-10，消除同步冲突的结构性保障 |
+| L-8 | 历史文件按设备隔离：不同设备禁止写同一文件；同一设备上的 App 与 CLI 只能持本机 `flock` 后用 `O_APPEND` 追加 v2 文件。旧文件不得迁移、改写或删除 | 决策 D-10、CLI 详细设计第 12 节 |
 | L-9 | 目标机器不保证安装完整 Xcode，构建流程不得依赖 `PreviewsMacros`。`KeyboardShortcuts 2.4.0` 固定到修订 `1aef8557`，构建前用版本匹配的补丁删除 `Recorder.swift` 中仅供开发预览的三个 `#Preview` 块，运行时代码不得改动 | 2026-07-15 清理 `.build` 后实测：未处理预览代码时 Command Line Tools 构建失败；删除预览块后干净构建通过 |
 | L-10 | FR-12 第一阶段只接收纯文本，不声明服务返回类型，不读取或修改通用剪贴板，不申请「辅助功能」权限 | FR-12、选中文字翻译功能设计 R-1、R-5 |
 | L-11 | 自动翻译上限固定为 `5,000` 个 Swift `Character`；超出时只载入原文，不截断、不自动请求 | 选中文字翻译功能设计 R-3 |
 | L-12 | 新服务请求到达时，正在进行的任务必须先以 `stopped` 状态完成历史写入；禁止直接用新代次使旧任务跳过保存 | 决策 D-13、选中文字翻译功能设计 R-4 |
 | L-13 | Terminal、iTerm2 和其他终端应用永久禁止自动粘贴和原位替换 | 选中文字翻译功能设计 R-6 |
 | L-14 | 未取得 Developer ID 证书前，GitHub 二进制必须标记为未签名预览版和 Pre-release；不得省略架构、SHA-256、Gatekeeper 提示或来源核验说明 | 决策 D-8、D-15 |
+| L-15 | UI 与 CLI 必须调用同一 `TranslationWorkflow`；路由调度、取消、聚合和历史构造只能存在一份 | FR-16、决策 D-16 |
+| L-16 | 同一次调用的全部已请求路由使用同一配置快照；历史开关在结束时读取 | CLI 详细设计第 7、9 节 |
+| L-17 | CLI 收到 `Ctrl+C` 后必须等待 `stopped` 历史处理结束再退出；`SIGKILL` 除外 | FR-16、CLI 详细设计第 11 节 |
+| L-18 | CLI 的 stdout 只承载结果协议，stderr 只承载诊断；两者均禁止 API Key | CLI 详细设计第 11、14 节 |
+| L-19 | CLI 必须嵌入 App 并与 App 同次构建、签名和发布；禁止单独发布版本不一致的 CLI | 决策 D-18 |
+| L-20 | 首次生成 `deviceID` 时必须使用本机跨进程锁；并发首次启动不得产生多个本机历史文件后缀 | FR-16、CLI 详细设计第 7、12 节 |
 
 ## 5. 假设与验证结论
 
@@ -167,12 +182,19 @@ sequenceDiagram
 | A-9 | 多行文字、Emoji、组合字符和中英文混排可通过纯文本 pasteboard 无损传递 | T17 结论：成立；单元测试与真机样例通过 | 记录不兼容应用；禁止静默截断或替换字符 |
 | A-10 | Terminal 和 iTerm2 的只读选区能调用无返回值文本服务 | T17 结论：成立；人工补验通过 | 标记为不支持，保留复制后呼出面板的流程 |
 | A-11 | 当前双路任务取消后，在不递增代次的前提下等待协调任务结束，可以稳定写入一条 `stopped` 历史 | T17 结论：成立；任务生命周期测试与真实流式替换通过 | 先重构任务结束协议，不接入正式服务入口 |
+| A-12 | Release CLI 能读取 App 保存的同一 UserDefaults 域和钥匙串条目 | T21 在干净安装环境验证 App 保存后 CLI 读取与真实请求 | 停止实施，重新评估 App 代理方案；不得改用命令参数传密钥 |
+| A-13 | Release App 与 CLI 能通过同一本机锁文件协调历史追加 | T21 运行 App 等价写入者与多个 CLI 并发测试 | 停止 Release 接入，检查签名、路径和 POSIX 错误 |
+| A-14 | 持锁进程被 `SIGKILL` 后内核会释放 `flock` | T21 用辅助进程持锁并强制终止，再由新进程获取 | 改为带所有者恢复协议的锁并更新设计，禁止永久等待 |
+| A-15 | iCloud 目录中的 v2 历史文件可以在本机锁保护下稳定追加 | T21 在受控真实目录执行并发写入与合并读取 | 重新评审 App 代理写入，不关闭 CLI 历史 |
+| A-16 | v1 与 v2 历史文件合并不会改变去重和排序 | T21 构造重复 ID、坏尾行和跨时区数据集 | 修订读取规则，不迁移或改写旧文件 |
+| A-17 | `Contents/Helpers/lt` 可以通过严格签名、架构和 ZIP 往返校验 | T21 本地与 CI 使用同一发布脚本验证 | 调整标准嵌套位置和签名顺序，不单独发布 CLI |
 
 ## 6. 模块间接口概览
 
-- 界面层到服务层只有一个模型请求入口：`TranslationService.translate(text:template:) -> AsyncThrowingStream<String, Error>`（一个会陆续吐出字符串片段、可能中途报错的异步序列）。
-- 服务层到配置层只读不写；设置窗口是唯一的配置写入方。
-- 历史读写只有两个入口：`HistoryStore.append(record:)`（翻译面板在翻译结束时调用）与 `HistoryStore.loadAll() -> [HistoryRecord]`（历史窗口打开与刷新时调用）。
-- 错误统一为 `TranslationError` 枚举，由服务层归类、界面层转为中文文案，映射表见详细设计第 7 节。历史写入失败不影响翻译主流程，仅记日志。
+- App 与 CLI 的唯一业务入口是 `TranslationWorkflow.run(request:emit:) -> TranslationSummary`；两种适配层只消费事件和最终摘要。
+- 工作流到网络层使用 `TranslationService.translate(text:template:configuration:) -> AsyncThrowingStream<String, Error>`，网络层不得直接读取 App 配置。
+- 设置窗口是配置的唯一写入方；CLI 只读同一 UserDefaults 域和钥匙串条目。
+- 历史读写入口是异步 `ProcessSafeHistoryStore.append(_:)` 与 `loadAll()`；工作流是唯一历史构造者。
+- 错误统一为 Core 的稳定错误码与消息。历史写入失败不改变翻译状态，只记录诊断。
 - 来源应用到系统集成层只有一个入口：`SelectionServiceProvider` 从请求专用 pasteboard 读取纯文本并生成不可变请求；它不得调用模型接口或写历史。
-- `AppDelegate` 接收选区请求并交给 `PanelViewModel.acceptExternalText(_:)`；任务停止、历史保存、长文本判断和双路启动均由 ViewModel 管理。
+- `AppDelegate` 接收选区请求并交给 `PanelViewModel.acceptExternalText(_:)`；ViewModel 管理长文本与最新请求优先，任务取消、双路启动和历史保存由共享工作流完成。

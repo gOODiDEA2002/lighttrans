@@ -15,6 +15,7 @@
 - API Key 存入 macOS 钥匙串；其他设置存入 UserDefaults。
 - 通过「轻译：打开面板」macOS 服务接收其他应用中的选中文字。
 - 历史记录采用 JSON Lines 格式，可通过 iCloud 云盘在多台 Mac 间合并显示。
+- 源码版本提供 `lt` 命令，可选择直译、转写或双路输出，并与界面共用设置和历史记录。
 - 支持开机启动和全局快捷键重新录制。
 
 ## 使用示例
@@ -129,6 +130,44 @@ bash Scripts/build-app.sh
 
 翻译过程中可以停止请求。隐藏面板不会清空当前输入和结果。
 
+## 命令行调用
+
+当前源码构建会把 `lt` 放入 `LightTrans.app/Contents/Helpers/`。已经发布的 `v0.1.1` 预览版不包含该命令，需从当前源码构建；后续预览版发布时，CLI 将与 App 使用同一版本号和同一个 ZIP。
+
+构建 App 后安装命令链接：
+
+```bash
+LIGHTTRANS_APP_PATH="$PWD/build/LightTrans.app" bash Scripts/install-cli.sh
+```
+
+安装后的默认链接为 `~/.local/bin/lt`。脚本不会修改 Shell 配置；若该目录不在 `PATH` 中，按脚本提示自行配置。已安装到 `/Applications` 的 App 也可以直接运行包内脚本：
+
+```bash
+bash /Applications/LightTrans.app/Contents/Resources/install-cli.sh
+```
+
+默认同时执行直译和转写：
+
+```bash
+lt 'AI 用于辅助分析和编码，技术决策、验证和生产结果由我负责'
+```
+
+选择单路模式或机器可读格式：
+
+```bash
+lt --mode literal '需要翻译的文字'
+lt --mode rewrite --format json '需要转写的文字'
+printf '%s\n' '多行输入' | lt --format ndjson
+```
+
+`--mode` 支持 `literal`、`rewrite` 和 `both`，默认 `both`；`--format` 支持 `text`、`json` 和 `ndjson`，默认 `text`。CLI 读取 App 保存的接口、模型、模板和钥匙串条目，并遵循同一个历史开关。它不接受 API Key 参数，也不会自动修改设置。
+
+卸载命令链接不会删除 App、设置、钥匙串或历史：
+
+```bash
+bash /Applications/LightTrans.app/Contents/Resources/install-cli.sh --uninstall
+```
+
 ## 转换选中的中文
 
 安装应用后，支持 macOS 服务的来源应用可以把选中的中文发送给轻译：
@@ -152,7 +191,7 @@ bash Scripts/build-app.sh
 
 ## 多设备历史
 
-多台 Mac 使用同一个 Apple ID 并启用 iCloud 云盘时，每台设备只追加自己的 `history-{设备标识}.jsonl` 文件。历史窗口读取目录中的全部设备文件，按时间合并和去重。
+多台 Mac 使用同一个 Apple ID 并启用 iCloud 云盘时，每台设备只追加自己的 `history-v2-{设备标识}.jsonl` 文件；旧版 `history-{设备标识}.jsonl` 保持只读兼容。历史窗口读取目录中的全部设备文件，按时间合并和去重。
 
 iCloud 同步时效由 macOS 决定，应用不保证实时同步。真实跨设备占位文件下载仍属于待持续验证的能力边界。
 
@@ -185,10 +224,12 @@ bash Scripts/capture-ui-acceptance.sh --state history-long-device-model
 | [需求文档](docs/01-requirements.md) | 功能范围、非功能要求与验收边界 |
 | [系统设计](docs/02-system-design.md) | 架构、技术决策和硬约束 |
 | [详细设计](docs/03-detailed-design.md) | 模块、接口、存储、网络和打包设计 |
-| [实施计划](docs/04-implementation-plan.md) | T1 至 T20 的实施与验收记录 |
+| [实施计划](docs/04-implementation-plan.md) | T1 至 T21 的实施与验收记录 |
 | [UI 视觉基准](docs/changes/ui-visual-consistency/v5-baseline.md) | 当前窗口尺寸、颜色和状态基准 |
 | [选中文字功能设计](docs/07-selection-translation-feature-design.md) | macOS 服务的能力边界与兼容性 |
 | [T17 验收记录](docs/08-selection-translation-acceptance.md) | 选中文字功能的测试结果 |
+| [CLI 可行性分析](docs/09-command-line-interface-feasibility.md) | 命令行接入方案与方案 A 的选择依据 |
+| [CLI 详细设计](docs/10-command-line-interface-detailed-design.md) | CLI 参数、共享工作流、历史锁、信号与打包契约 |
 | [GitHub 发布准备](docs/04-implementation-plan.md#t18-github-源码发布准备) | 源码发布准备与验收门槛 |
 
 `docs/ai/` 保存早期设计评审快照，其中未勾选项只表示当时的审查意见，不代表当前发布版本仍未完成。

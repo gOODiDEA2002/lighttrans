@@ -1,5 +1,5 @@
 import XCTest
-@testable import LightTrans
+import LightTransCore
 
 final class KeychainHelperTests: XCTestCase {
     private var service = ""
@@ -18,14 +18,14 @@ final class KeychainHelperTests: XCTestCase {
     func testSaveAddsAndReadsValue() throws {
         try KeychainHelper.save("first-key", service: service, account: account)
 
-        XCTAssertEqual(KeychainHelper.read(service: service, account: account), "first-key")
+        XCTAssertEqual(try KeychainHelper.read(service: service, account: account), "first-key")
     }
 
     func testSaveUpdatesExistingValue() throws {
         try KeychainHelper.save("first-key", service: service, account: account)
         try KeychainHelper.save("second-key", service: service, account: account)
 
-        XCTAssertEqual(KeychainHelper.read(service: service, account: account), "second-key")
+        XCTAssertEqual(try KeychainHelper.read(service: service, account: account), "second-key")
     }
 
     func testDeleteRemovesValue() throws {
@@ -33,6 +33,6 @@ final class KeychainHelperTests: XCTestCase {
 
         KeychainHelper.delete(service: service, account: account)
 
-        XCTAssertNil(KeychainHelper.read(service: service, account: account))
+        XCTAssertNil(try KeychainHelper.read(service: service, account: account))
     }
 }

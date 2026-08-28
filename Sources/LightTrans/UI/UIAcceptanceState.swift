@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import LightTransCore
 
 #if DEBUG
 // Debug 截图验收状态：集中定义所有冻结态，避免散落 magic string

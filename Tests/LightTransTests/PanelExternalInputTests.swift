@@ -1,321 +1,249 @@
 import XCTest
-import Foundation
+import LightTransCore
 @testable import LightTrans
 
 final class PanelExternalInputTests: XCTestCase {
     @MainActor
     func testSelectionAutoTranslateCharacterLimitBoundaries() async {
-        let tracker = EventTracker()
-        let viewModel = makeViewModel(eventTracker: tracker)
+        let tracker = WorkflowTracker()
+        let viewModel = makeViewModel(tracker: tracker)
 
-        let text4_999 = String(repeating: "a", count: 4_999)
-        viewModel.acceptExternalText(text4_999)
-        let didComplete4_999 = await waitUntil(timeout: 1.0) {
-            tracker.translateCallCount(for: "a", count: 4_999) == 2 &&
-            tracker.historyRecord(forInput: text4_999)?.status == "done"
+        viewModel.acceptExternalText(String(repeating: "a", count: 4_999))
+        let started4_999 = await waitUntil(timeout: 1.0) {
+            (await tracker.startedRequests()).contains(String(repeating: "a", count: 4_999))
         }
-        XCTAssertTrue(didComplete4_999)
+        XCTAssertTrue(started4_999)
         XCTAssertNil(viewModel.selectionNotice)
 
-        let text5_000 = String(repeating: "b", count: 5_000)
-        viewModel.acceptExternalText(text5_000)
-        let didComplete5_000 = await waitUntil(timeout: 1.0) {
-            tracker.translateCallCount(for: "b", count: 5_000) == 2 &&
-            tracker.historyRecord(forInput: text5_000)?.status == "done"
-        }
-        XCTAssertTrue(didComplete5_000)
-        XCTAssertNil(viewModel.selectionNotice)
-
-        viewModel.acceptExternalText(String(repeating: "c", count: 5_001))
-        let didLoad5_001 = await waitUntil(timeout: 1.0) {
+        viewModel.acceptExternalText(String(repeating: "a", count: 5_001))
+        let loaded = await waitUntil(timeout: 1.0) {
             viewModel.inputText.count == 5_001 && viewModel.selectionNotice != nil
         }
-        XCTAssertTrue(didLoad5_001)
-        XCTAssertEqual(viewModel.inputText.count, 5_001)
-        XCTAssertEqual(viewModel.selectionNotice, "选中文字超过 5,000 字符，请确认后翻译")
-        XCTAssertEqual(tracker.translateCallCount(for: "c", count: 5_001), 0)
-        XCTAssertNil(tracker.historyRecord(forInput: String(repeating: "c", count: 5_001)))
+        XCTAssertTrue(loaded)
+        let startedRequests = await tracker.startedRequests()
+        XCTAssertFalse(startedRequests.contains(String(repeating: "a", count: 5_001)))
+
+        viewModel.acceptExternalText(String(repeating: "b", count: 5_000))
+        let started = await waitUntil(timeout: 1.0) {
+            viewModel.literalState != .idle && viewModel.rewriteState != .idle
+        }
+        XCTAssertTrue(started)
+        XCTAssertNil(viewModel.selectionNotice)
     }
 
     @MainActor
-    func testNewestSelectionWinsAndOldTaskWritesStoppedBeforeRestart() async throws {
-        let tracker = EventTracker()
-        let viewModel = makeViewModel(eventTracker: tracker)
+    func testWorkflowEventsDriveResultAndState() async {
+        let tracker = WorkflowTracker()
+        let viewModel = makeViewModel(tracker: tracker)
+        viewModel.inputText = "hello"
+        viewModel.startTranslate()
+
+        let finished = await waitUntil(timeout: 1.0) {
+            viewModel.literalState == .done && viewModel.rewriteState == .done
+        }
+        XCTAssertTrue(finished)
+        XCTAssertEqual(viewModel.literalResult, "直译片段")
+        XCTAssertEqual(viewModel.rewriteResult, "转写片段")
+    }
+
+    @MainActor
+    func testNewestSelectionWaitsOldTaskFinished() async {
+        let tracker = WorkflowTracker()
+        let viewModel = makeViewModel(tracker: tracker)
 
         viewModel.acceptExternalText("first")
-        let didStartFirst = await waitUntil(timeout: 1.0) {
-            tracker.translateStartCount(text: "first") == 2
+        let firstStarted = await waitUntil(timeout: 1.0) {
+            (try? await tracker.startOrder(for: "first")) != nil
         }
-        XCTAssertTrue(didStartFirst)
+        XCTAssertTrue(firstStarted)
 
         viewModel.acceptExternalText("second")
-        let didFinishReplacement = await waitUntil(timeout: 2.0) {
-            tracker.historyRecord(forInput: "first")?.status == "stopped" &&
-            tracker.historyRecord(forInput: "second")?.status == "done"
+        let secondStarted = await waitUntil(timeout: 2.0) {
+            (try? await tracker.startOrder(for: "second")) != nil
         }
-        XCTAssertTrue(didFinishReplacement)
+        XCTAssertTrue(secondStarted)
 
-        let firstStoppedOrder = try XCTUnwrap(tracker.historyRecord(forInput: "first")?.order)
-        let secondTranslateOrder = try XCTUnwrap(tracker.firstTranslateOrder(text: "second"))
-        XCTAssertLessThan(firstStoppedOrder, secondTranslateOrder)
+        let firstFinished = try! await tracker.finishOrder(for: "first")
+        let secondStart = try! await tracker.startOrder(for: "second")
+        XCTAssertLessThan(firstFinished, secondStart)
         XCTAssertEqual(viewModel.inputText, "second")
     }
 
     @MainActor
-    func testRapidSelectionRequestsOnlyStartLatestWaitingRequest() async throws {
-        let tracker = EventTracker()
-        let viewModel = makeViewModel(eventTracker: tracker)
+    func testRapidSelectionRequestsOnlyStartLatestWaitingRequest() async {
+        let tracker = WorkflowTracker()
+        let viewModel = makeViewModel(tracker: tracker)
 
         viewModel.acceptExternalText("first")
-        let didStartFirst = await waitUntil(timeout: 1.0) {
-            tracker.translateStartCount(text: "first") == 2
+        let firstStarted = await waitUntil(timeout: 1.0) {
+            (await tracker.startedRequests()).contains("first")
         }
-        XCTAssertTrue(didStartFirst)
+        XCTAssertTrue(firstStarted)
 
         viewModel.acceptExternalText("second")
         viewModel.acceptExternalText("third")
-        let didFinishLatest = await waitUntil(timeout: 2.0) {
-            tracker.historyRecord(forInput: "first")?.status == "stopped" &&
-            tracker.historyRecord(forInput: "third")?.status == "done"
+        let thirdStarted = await waitUntil(timeout: 2.0) {
+            (await tracker.startedRequests()).contains("third")
         }
-        XCTAssertTrue(didFinishLatest)
-
-        let firstStoppedOrder = try XCTUnwrap(tracker.historyRecord(forInput: "first")?.order)
-        let thirdTranslateOrder = try XCTUnwrap(tracker.firstTranslateOrder(text: "third"))
-        XCTAssertLessThan(firstStoppedOrder, thirdTranslateOrder)
-        XCTAssertEqual(tracker.translateStartCount(text: "second"), 0)
-        XCTAssertNil(tracker.historyRecord(forInput: "second"))
+        XCTAssertTrue(thirdStarted)
+        let requests = await tracker.startedRequests()
+        XCTAssertFalse(requests.contains("second"))
         XCTAssertEqual(viewModel.inputText, "third")
     }
 
     @MainActor
-    func testExternalReplacementOverridesEarlierPartFailureAsStopped() async {
-        let tracker = EventTracker()
-        let viewModel = makeViewModel(eventTracker: tracker)
+    func testSingleRouteFailureKeepsOtherRouteResult() async {
+        let viewModel = PanelViewModel { request, emit in
+            await emit(.started(mode: request.mode, model: "test-model"))
+            let literal = TranslationRouteSummary(
+                route: .literal,
+                status: .failed,
+                text: "",
+                failure: TranslationError.network("单路失败").failure
+            )
+            let rewrite = TranslationRouteSummary(
+                route: .rewrite,
+                status: .done,
+                text: "可用转写",
+                failure: nil
+            )
+            await emit(.routeFinished(literal))
+            await emit(.chunk(route: .rewrite, text: rewrite.text))
+            await emit(.routeFinished(rewrite))
+            let summary = TranslationSummary(
+                mode: .both,
+                status: .failed,
+                model: "test-model",
+                literal: literal,
+                rewrite: rewrite,
+                history: .written
+            )
+            await emit(.finished(summary))
+            return summary
+        }
+        viewModel.inputText = "single-failure"
+        viewModel.startTranslate()
 
-        viewModel.acceptExternalText("partial-first")
-        let didReachPartialFailure = await waitUntil(timeout: 1.0) {
+        let finished = await waitUntil(timeout: 1.0) {
             if case .failed = viewModel.literalState {
-                return viewModel.rewriteState == .translating
+                return viewModel.rewriteState == .done
             }
             return false
         }
-        XCTAssertTrue(didReachPartialFailure)
-
-        viewModel.acceptExternalText("partial-second")
-        let didFinishReplacement = await waitUntil(timeout: 2.0) {
-            tracker.historyRecord(forInput: "partial-first")?.status == "stopped" &&
-            tracker.historyRecord(forInput: "partial-second")?.status == "done"
-        }
-        XCTAssertTrue(didFinishReplacement)
+        XCTAssertTrue(finished)
+        XCTAssertEqual(viewModel.rewriteResult, "可用转写")
     }
 
     @MainActor
-    func testDisablingHistoryBeforeCancellationPreventsWrite() async {
-        let tracker = EventTracker()
-        let viewModel = makeViewModel(eventTracker: tracker)
-
-        viewModel.acceptExternalText("toggle-history")
-        let didStart = await waitUntil(timeout: 1.0) {
-            tracker.translateStartCount(text: "toggle-history") == 2
+    func testStopTranslateMapsToStoppedState() async {
+        let tracker = WorkflowTracker()
+        let viewModel = makeViewModel(tracker: tracker)
+        viewModel.acceptExternalText("first")
+        let started = await waitUntil(timeout: 1.0) {
+            viewModel.literalState == .translating || viewModel.rewriteState == .translating
         }
-        XCTAssertTrue(didStart)
+        XCTAssertTrue(started)
 
-        tracker.setHistoryEnabled(false)
         viewModel.stopTranslate()
-        let didStop = await waitUntil(timeout: 1.0) {
+        let stopped = await waitUntil(timeout: 1.0) {
             viewModel.literalState == .stopped && viewModel.rewriteState == .stopped
         }
-        XCTAssertTrue(didStop)
-        try? await Task.sleep(nanoseconds: 100_000_000)
-        XCTAssertNil(tracker.historyRecord(forInput: "toggle-history"))
+        XCTAssertTrue(stopped)
     }
 
     @MainActor
-    func testManualStopWritesStoppedHistory() async {
-        let tracker = EventTracker()
-        let viewModel = makeViewModel(eventTracker: tracker)
+    private func makeViewModel(tracker: WorkflowTracker) -> PanelViewModel {
+        PanelViewModel { request, emit in
+            await tracker.recordStart(text: request.text)
+            await emit(.started(mode: request.mode, model: "test-model"))
 
-        viewModel.acceptExternalText("first")
-        let didStart = await waitUntil(timeout: 1.0) {
-            tracker.translateStartCount(text: "first") == 2
-        }
-        XCTAssertTrue(didStart)
-
-        viewModel.stopTranslate()
-        let didWriteStopped = await waitUntil(timeout: 1.0) {
-            tracker.historyRecord(forInput: "first")?.status == "stopped"
-        }
-        XCTAssertTrue(didWriteStopped)
-        XCTAssertEqual(viewModel.literalState, .stopped)
-        XCTAssertEqual(viewModel.rewriteState, .stopped)
-    }
-
-    @MainActor
-    func testSingleFailureKeepsSuccessfulOtherPartResult() async {
-        let tracker = EventTracker()
-        let viewModel = makeViewModel(eventTracker: tracker)
-
-        viewModel.acceptExternalText("single-failure")
-        let didFinish = await waitUntil(timeout: 1.0) {
-            tracker.historyRecord(forInput: "single-failure")?.status == "failed"
-        }
-        XCTAssertTrue(didFinish)
-        if case .failed = viewModel.literalState {
-            // 直译失败符合预期。
-        } else {
-            XCTFail("直译分段应失败")
-        }
-        XCTAssertEqual(viewModel.rewriteState, .done)
-        XCTAssertEqual(viewModel.rewriteResult, "新任务片段")
-    }
-
-    @MainActor
-    func testNotConfiguredPreservesInputAndWritesFailedHistory() async {
-        let tracker = EventTracker()
-        let viewModel = makeViewModel(eventTracker: tracker)
-
-        let input = "  未配置时保留原文\n"
-        viewModel.acceptExternalText(input)
-        let didFinish = await waitUntil(timeout: 1.0) {
-            tracker.historyRecord(forInput: input)?.status == "failed"
-        }
-        XCTAssertTrue(didFinish)
-        XCTAssertEqual(viewModel.inputText, input)
-        XCTAssertEqual(
-            viewModel.literalState,
-            .failed("请先在设置中填写接口地址、模型名和 API Key")
-        )
-        XCTAssertEqual(
-            viewModel.rewriteState,
-            .failed("请先在设置中填写接口地址、模型名和 API Key")
-        )
-    }
-
-    @MainActor
-    private func makeViewModel(eventTracker: EventTracker) -> PanelViewModel {
-        PanelViewModel(
-            translate: { text, template in
-                eventTracker.recordTranslateStart(text: text)
-                return AsyncThrowingStream { continuation in
-                    let task = Task {
-                        if text == "  未配置时保留原文\n" {
-                            continuation.finish(throwing: TranslationError.notConfigured)
-                        } else if ["partial-first", "single-failure"].contains(text),
-                                  template.hasPrefix("literal:") {
-                            continuation.finish(throwing: TranslationError.network("单路失败"))
-                        } else if ["first", "partial-first", "toggle-history"].contains(text) {
-                            continuation.yield("旧任务片段")
-                            do {
-                                while true {
-                                    try await Task.sleep(nanoseconds: 30_000_000)
-                                    try Task.checkCancellation()
-                                }
-                            } catch is CancellationError {
-                                continuation.finish(throwing: CancellationError())
-                                return
-                            } catch {
-                                continuation.finish(throwing: error)
-                                return
-                            }
-                        } else {
-                            continuation.yield("新任务片段")
-                            continuation.finish()
-                        }
-                    }
-                    continuation.onTermination = { _ in
-                        task.cancel()
-                    }
+            if request.text == "first" {
+                await emit(.chunk(route: .literal, text: "旧任务片段"))
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 20_000_000)
                 }
-            },
-            loadConfig: {
-                .init(
-                    modelName: "unit-test-model",
-                    literalTemplate: "literal: {{text}}",
-                    rewriteTemplate: "rewrite: {{text}}",
-                    historyEnabled: eventTracker.isHistoryEnabled
+                let literal = TranslationRouteSummary(route: .literal, status: .stopped, text: "旧任务片段", failure: nil)
+                let rewrite = TranslationRouteSummary(route: .rewrite, status: .stopped, text: "", failure: nil)
+                await emit(.routeFinished(literal))
+                await emit(.routeFinished(rewrite))
+                let summary = TranslationSummary(
+                    mode: request.mode,
+                    status: .stopped,
+                    model: "test-model",
+                    literal: literal,
+                    rewrite: rewrite,
+                    history: .written
                 )
-            },
-            appendHistory: { record in
-                eventTracker.recordHistory(status: record.status, input: record.input)
+                await emit(.finished(summary))
+                await tracker.recordFinish(text: request.text)
+                return summary
             }
-        )
+
+            let literal = TranslationRouteSummary(route: .literal, status: .done, text: "直译片段", failure: nil)
+            let rewrite = TranslationRouteSummary(route: .rewrite, status: .done, text: "转写片段", failure: nil)
+            await emit(.chunk(route: .literal, text: literal.text))
+            await emit(.chunk(route: .rewrite, text: rewrite.text))
+            await emit(.routeFinished(literal))
+            await emit(.routeFinished(rewrite))
+            let summary = TranslationSummary(
+                mode: request.mode,
+                status: .done,
+                model: "test-model",
+                literal: literal,
+                rewrite: rewrite,
+                history: .written
+            )
+            await emit(.finished(summary))
+            await tracker.recordFinish(text: request.text)
+            return summary
+        }
     }
 
     private func waitUntil(
         timeout: TimeInterval,
-        condition: @escaping () -> Bool
+        condition: @escaping () async -> Bool
     ) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if condition() { return true }
+            if await condition() {
+                return true
+            }
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
-        return condition()
+        return await condition()
     }
 }
 
-private final class EventTracker: @unchecked Sendable {
-    struct HistoryEvent {
-        let order: Int
-        let status: String
-        let input: String
-    }
-
-    private let lock = NSLock()
+actor WorkflowTracker {
     private var order: Int = 0
-    private var translateOrdersByText: [String: [Int]] = [:]
-    private var historyEventsByInput: [String: HistoryEvent] = [:]
-    private var historyEnabled = true
+    private var startByText: [String: Int] = [:]
+    private var finishByText: [String: Int] = [:]
 
-    var isHistoryEnabled: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return historyEnabled
-    }
-
-    func setHistoryEnabled(_ enabled: Bool) {
-        lock.lock()
-        defer { lock.unlock() }
-        historyEnabled = enabled
-    }
-
-    func recordTranslateStart(text: String) {
-        lock.lock()
-        defer { lock.unlock() }
+    func recordStart(text: String) {
         order += 1
-        translateOrdersByText[text, default: []].append(order)
+        startByText[text] = order
     }
 
-    func recordHistory(status: String, input: String) {
-        lock.lock()
-        defer { lock.unlock() }
+    func recordFinish(text: String) {
         order += 1
-        historyEventsByInput[input] = HistoryEvent(order: order, status: status, input: input)
+        finishByText[text] = order
     }
 
-    func translateCallCount(for char: Character, count: Int) -> Int {
-        let text = String(repeating: String(char), count: count)
-        lock.lock()
-        defer { lock.unlock() }
-        return translateOrdersByText[text]?.count ?? 0
+    func startedRequests() -> [String] {
+        Array(startByText.keys).sorted()
     }
 
-    func translateStartCount(text: String) -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return translateOrdersByText[text]?.count ?? 0
+    func startOrder(for text: String) throws -> Int {
+        guard let order = startByText[text] else {
+            throw NSError(domain: "tracker", code: 1)
+        }
+        return order
     }
 
-    func firstTranslateOrder(text: String) -> Int? {
-        lock.lock()
-        defer { lock.unlock() }
-        return translateOrdersByText[text]?.first
-    }
-
-    func historyRecord(forInput input: String) -> HistoryEvent? {
-        lock.lock()
-        defer { lock.unlock() }
-        return historyEventsByInput[input]
+    func finishOrder(for text: String) throws -> Int {
+        guard let order = finishByText[text] else {
+            throw NSError(domain: "tracker", code: 2)
+        }
+        return order
     }
 }

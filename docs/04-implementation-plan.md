@@ -1,9 +1,9 @@
 # 实施计划（编码任务清单）
 
 项目名：LightTrans（应用显示名：轻译）
-文档版本：v1.4（2026-08-27）
+文档版本：v1.5（2026-08-28）
 执行者：项目开发流程
-依据：03-detailed-design.md（详细设计）。本清单只安排「做什么、什么顺序、怎么验收」，实现细节一律以详细设计为准。任务共 20 项（T1 至 T20）。
+依据：03-detailed-design.md 与 10-command-line-interface-detailed-design.md。本清单只安排「做什么、什么顺序、怎么验收」，实现细节一律以详细设计为准。任务共 21 项（T1 至 T21）。
 
 ## 0. 编码纪律（执行前必读）
 
@@ -237,6 +237,57 @@
   - 暂时移除本机 `.build` 回退资源后，从 ZIP 启动应用并打开「通用与快捷键」，进程保持运行且快捷键录制控件正常显示；
   - GitHub Actions 成功创建 `v0.1.1` Pre-release，附件与本地验证结构一致。
 - 验收结果（2026-08-27）：通过。27/27 单元测试、干净依赖解析、Release 构建、资源位置、严格签名、`arm64` 架构、ZIP 往返解压和 SHA-256 校验均通过；暂时移除 `.build` 回退资源后，从 ZIP 启动应用并打开「通用与快捷键」，快捷键录制控件正常显示，进程保持运行且没有新增崩溃报告。[master CI](https://github.com/gOODiDEA2002/lighttrans/actions/runs/33063761096)、[Tag CI](https://github.com/gOODiDEA2002/lighttrans/actions/runs/33063768371) 和 [Release Preview](https://github.com/gOODiDEA2002/lighttrans/actions/runs/33063768137) 均成功，[v0.1.1 未签名预览版](https://github.com/gOODiDEA2002/lighttrans/releases/tag/v0.1.1) 已创建。从 GitHub 重新下载的 ZIP 为 2,758,216 字节，SHA-256 为 `f73e37595f184f665c212ef197512f580645e999008effd878f7642014bfcca8`，资源包仅位于 `Contents/Resources/`；`v0.1.0` Release 页面已增加升级警告。
+
+### T21 共享翻译核心与命令行接口
+
+- 前置条件：
+  - `docs/09-command-line-interface-feasibility.md` 的方案 A 已于 2026-08-28 确认；
+  - `docs/10-command-line-interface-detailed-design.md` v1.0 已于 2026-08-28 确认；
+  - 本任务只实现 FR-16，不顺带实施 FR-13 至 FR-15；
+  - 不提交、不打 Tag、不推送、不发布，用户确认验收后再单独提交。
+- 阶段 1：固定现有行为。
+  - 为双路并行、部分失败、手动停止、历史开关结束时读取、外部选区替换增加特征测试；
+  - 先运行全部现有测试，确认重构前基线。
+- 阶段 2：建立 `LightTransCore`。
+  - 拆分 App、Core、CLI 三个 SPM 目标；
+  - 迁移配置定义、错误、网络服务和历史结构；
+  - App 的 `ConfigStore` 与设置行为保持不变；
+  - 完成后立即运行 Core 与现有 App 测试。
+- 阶段 3：进程安全历史。
+  - 实现 v2 文件、本机 `flock`、`O_APPEND`、短写与 5 秒锁超时；
+  - 首次生成 `deviceID` 时增加跨进程锁，防止并发首次启动产生多个历史文件后缀；
+  - 新增 legacy/literal/rewrite/both 解码与显示；
+  - 使用隔离临时目录完成 50 进程并发、锁失败和 `SIGKILL` 释放验证。
+- 阶段 4：共享工作流与 UI 适配。
+  - 实现 `TranslationWorkflow`、串行事件、取消优先、结束时历史开关和最终摘要；
+  - `PanelViewModel` 改为事件适配器，移除业务调度与历史构造；
+  - 重新运行外部选区、面板状态和历史窗口回归。
+- 阶段 5：CLI。
+  - 实现三种模式、三种格式、位置参数、标准输入、`--help`、`--version`；
+  - 实现 stdout/stderr 隔离、退出码、`SIGINT`、`SIGPIPE/EPIPE` 和取消中继；
+  - 完成 CLI 合同测试。
+- 阶段 6：打包和安装。
+  - 把 `lt` 与安装脚本嵌入 App；
+  - 扩展本地构建、严格签名、架构、版本、依赖和 ZIP 往返校验；
+  - 安装脚本只创建或移除受控符号链接，不修改 Shell 配置。
+- 假设验证：
+  - A-12、A-13、A-14、A-16、A-17 必须在本任务内验证；
+  - A-15 需要在受控真实 iCloud 目录验证，未执行前明确标记为待验；
+  - 真实 API 验证使用 App 已保存配置，不读取、打印或保存 API Key；产生费用前保持请求范围最小；
+  - 任一关键假设不成立时停止对应后续阶段并更新设计，不关闭历史或改用参数传密钥。
+- 验收标准：
+  - 三种模式只发起所选路由，默认 `both`，双路并行；
+  - 文本、JSON、NDJSON 格式和固定标记符合详细设计；
+  - UI 与 CLI 得到相同路由状态、聚合状态、错误和历史语义；
+  - `Ctrl+C` 保留部分结果、写一条 `stopped` 历史并返回 `130`；
+  - 50 进程并发历史无丢行、交错和坏 JSON，锁失败不无锁退化；
+  - App 保存的配置和钥匙串可由 Release CLI 读取；
+  - legacy、literal、rewrite、both 历史显示正确；
+  - 全部单元测试、警告即错误构建、Debug/Release 构建通过；
+  - App 与 CLI 的严格签名、`arm64` 架构、版本、运行时依赖和 ZIP 往返校验通过；
+  - 现有面板、设置、历史、菜单栏和 macOS 服务行为无回归；
+  - 工作区只包含 T21 与已确认文档范围内的变更。
+- 实施结果（2026-08-28）：代码与本机技术验收完成，用户已确认验收并进入提交收尾。60/60 单元与进程测试通过；其中 50 个独立进程并发追加无丢行或坏 JSON，20 个独立进程并发首次启动得到同一 `deviceID`，锁超时、`SIGINT`、`SIGKILL` 和 v1/v2 合并均通过。Release CLI 使用 App 已保存的 UserDefaults 与钥匙串完成 `literal`、`rewrite`、默认 `both` 三种真实请求；对应 iCloud v2 历史分别只包含所请求路由，`SIGINT` 返回 `130` 并写一条 `stopped` 历史，`EPIPE` 返回 `70` 并停止请求。警告即错误构建、App/CLI 严格签名、`arm64`、版本、运行时依赖、ZIP 往返、安装与卸载脚本，以及面板、设置、历史三个代表状态的视觉回归通过。更换 API 供应商后，`literal`、`rewrite`、默认 `both` 三种真实请求再次通过，历史记录的模式与路由输出正确。尚未执行「Release App 与多个 Release CLI 同时写真实 iCloud 目录」和第二台 Mac 的跨设备合并；这两项保留为真机后续验收，不影响临时目录中的进程安全结论。本任务未安装到用户 PATH，未打 Tag、未推送、未发布。
 
 ## 2. 总验收记录（T10 时填写）
 

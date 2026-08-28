@@ -9,11 +9,14 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
 APP_NAME="LightTrans"
+CLI_NAME="lt"
 APP_DIR="build/${APP_NAME}.app"
 CONTENTS_DIR="${APP_DIR}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
+HELPERS_DIR="${CONTENTS_DIR}/Helpers"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 ICON_PATH="Resources/AppIcon.icns"
+CLI_INSTALL_SCRIPT="Scripts/install-cli.sh"
 KEYBOARD_SHORTCUTS_CHECKOUT=".build/checkouts/KeyboardShortcuts"
 KEYBOARD_SHORTCUTS_RECORDER="${KEYBOARD_SHORTCUTS_CHECKOUT}/Sources/KeyboardShortcuts/Recorder.swift"
 KEYBOARD_SHORTCUTS_UTILITIES="${KEYBOARD_SHORTCUTS_CHECKOUT}/Sources/KeyboardShortcuts/Utilities.swift"
@@ -65,19 +68,30 @@ if ! grep -q 'NSLocalizedString(self, bundle: \.keyboardShortcutsResources, comm
 fi
 
 # 1. release 构建
-echo "==> swift build -c release"
-swift build -c release
+echo "==> swift build -c release --product ${APP_NAME}"
+swift build -c release --product "${APP_NAME}"
+echo "==> swift build -c release --product ${CLI_NAME}"
+swift build -c release --product "${CLI_NAME}"
 BIN_PATH="$(swift build -c release --show-bin-path)"
 
 # 2. 组装 .app 目录结构（先清理旧产物）
 echo "==> 组装 ${APP_DIR}"
 rm -rf "${APP_DIR}"
 mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}"
+mkdir -p "${HELPERS_DIR}"
 
 # 3. 复制可执行文件与 Info.plist
 cp "${BIN_PATH}/${APP_NAME}" "${MACOS_DIR}/${APP_NAME}"
+cp "${BIN_PATH}/${CLI_NAME}" "${HELPERS_DIR}/${CLI_NAME}"
+chmod 755 "${HELPERS_DIR}/${CLI_NAME}"
 cp "Resources/Info.plist" "${CONTENTS_DIR}/Info.plist"
 cp "${ICON_PATH}" "${RESOURCES_DIR}/AppIcon.icns"
+cp "${CLI_INSTALL_SCRIPT}" "${RESOURCES_DIR}/install-cli.sh"
+chmod 755 "${RESOURCES_DIR}/install-cli.sh"
+if [[ ! -x "${HELPERS_DIR}/${CLI_NAME}" || ! -x "${RESOURCES_DIR}/install-cli.sh" ]]; then
+    echo "错误：CLI 或安装脚本缺少可执行权限" >&2
+    exit 1
+fi
 
 # 3.1 复制依赖生成的资源包（.bundle）到标准应用资源目录
 shopt -s nullglob
@@ -91,12 +105,41 @@ if [[ ! -f "${RESOURCES_DIR}/${EXPECTED_KEYBOARD_SHORTCUTS_BUNDLE}/en.lproj/Loca
     exit 1
 fi
 
-# 4. ad-hoc 签名（--deep 连同嵌套的资源包一并签名）
+# 4. 先签名 CLI，再签名 App
+echo "==> 签名 ${CLI_NAME}"
+codesign --force --sign - "${HELPERS_DIR}/${CLI_NAME}"
+
+# 5. ad-hoc 签名（--deep 连同嵌套的资源包一并签名）
 echo "==> codesign (ad-hoc)"
 codesign --force --deep --sign - "${APP_DIR}"
 
 echo "==> 校验签名"
+codesign --verify --strict "${HELPERS_DIR}/${CLI_NAME}"
 codesign --verify --deep --strict "${APP_DIR}"
 
-# 5. 输出产物路径
+echo "==> 校验架构"
+if [[ "$(lipo -archs "${MACOS_DIR}/${APP_NAME}")" != "arm64" ]]; then
+    echo "错误：${APP_NAME} 必须为 arm64" >&2
+    exit 1
+fi
+if [[ "$(lipo -archs "${HELPERS_DIR}/${CLI_NAME}")" != "arm64" ]]; then
+    echo "错误：${CLI_NAME} 必须为 arm64" >&2
+    exit 1
+fi
+
+echo "==> 校验 CLI 运行时依赖"
+if otool -L "${HELPERS_DIR}/${CLI_NAME}" | rg -q '\.build|/Sources/'; then
+    echo "错误：CLI 存在源码目录运行时依赖" >&2
+    exit 1
+fi
+
+echo "==> 校验 CLI 版本"
+APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${CONTENTS_DIR}/Info.plist")"
+CLI_VERSION="$("${HELPERS_DIR}/${CLI_NAME}" --version)"
+if [[ "${CLI_VERSION}" != "${APP_VERSION}" ]]; then
+    echo "错误：CLI 版本 ${CLI_VERSION} 与 App 版本 ${APP_VERSION} 不一致" >&2
+    exit 1
+fi
+
+# 6. 输出产物路径
 echo "==> 打包完成：${ROOT_DIR}/${APP_DIR}"

@@ -1,6 +1,7 @@
 import SwiftUI
 import KeyboardShortcuts
 import ServiceManagement
+import LightTransCore
 
 // 设置窗口（详细设计 13.2、v5 视觉基准）
 // window.frame 520x450 pt（含标题栏），由 AppDelegate 控制；本视图填充内容区
@@ -365,7 +366,7 @@ struct SettingsView: View {
                 testState = .idle
             } catch let error as TranslationError {
                 guard gen == testGeneration else { return }
-                testState = .failed(error.panelMessage)
+                testState = .failed(error.userMessage)
             } catch {
                 guard gen == testGeneration else { return }
                 testState = .failed("连接失败：\(error.localizedDescription)")
@@ -511,9 +512,9 @@ struct SettingsView: View {
             Toggle("记录翻译历史", isOn: $config.historyEnabled)
 
             HStack(alignment: .top, spacing: V5.compactSpacing) {
-                Image(systemName: HistoryStore.shared.isICloudAvailable ? "icloud.fill" : "laptopcomputer")
+                Image(systemName: ProcessSafeHistoryStore.shared.isICloudAvailable ? "icloud.fill" : "laptopcomputer")
                     .foregroundColor(.secondary)
-                Text(HistoryStore.shared.isICloudAvailable
+                Text(ProcessSafeHistoryStore.shared.isICloudAvailable
                      ? "存储位置：iCloud 云盘（可多设备自动同步）"
                      : "存储位置：本机（未检测到 iCloud 云盘）")
                     .font(.system(size: V5.captionFontSize))

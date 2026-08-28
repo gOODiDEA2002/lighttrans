@@ -1,8 +1,8 @@
 # 详细设计文档
 
 项目名：LightTrans（应用显示名：轻译）
-文档版本：v1.9（2026-08-27）
-关联文档：02-system-design.md（系统设计）、04-implementation-plan.md（实施计划）、07-selection-translation-feature-design.md（选中文字翻译功能设计）
+文档版本：v2.0（2026-08-28）
+关联文档：02-system-design.md（系统设计）、04-implementation-plan.md（实施计划）、07-selection-translation-feature-design.md（选中文字翻译功能设计）、10-command-line-interface-detailed-design.md（CLI 详细设计）
 
 本文档是编码的直接依据。编码时如遇本文档未覆盖的决策点，停下补充设计并经确认后再继续，不得在代码中即兴决定。
 
@@ -33,6 +33,13 @@ lighttrans/
 │       └── Config/
 │           ├── ConfigStore.swift      # 配置读写（UserDefaults）
 │           └── KeychainHelper.swift   # 钥匙串读写
+│   ├── LightTransCore/                 # App 与 CLI 共用的完整翻译工作流
+│   │   ├── Config/                     # 配置键、默认值与只读提供器
+│   │   ├── Domain/                     # 路由、模式、状态、事件与错误
+│   │   ├── Services/                   # HTTP 与 SSE
+│   │   ├── Storage/                    # 历史结构与跨进程安全读写
+│   │   └── Workflow/                   # TranslationWorkflow
+│   └── LightTransCLI/                  # lt 参数、输入输出与信号
 ├── Resources/
 │   ├── AppIcon.icns                      # 应用图标
 │   ├── AppIcon.png                       # 图标源文件
@@ -41,10 +48,13 @@ lighttrans/
 │   ├── build-app.sh                      # 构建并打包 .app
 │   ├── capture-ui-acceptance.sh          # UI 截图验收
 │   ├── generate-app-icon.sh              # 生成 ICNS
-│   └── install-app.sh                    # 安装或更新应用
+│   ├── install-app.sh                    # 安装或更新应用
+│   └── install-cli.sh                    # 安装或移除 lt 符号链接
 ├── Patches/
 │   └── KeyboardShortcuts-2.4.0-remove-previews.patch  # 移除依赖中的 Xcode 预览代码
-├── Tests/LightTransTests/                # 单元测试
+├── Tests/LightTransTests/                # App 适配与现有单元测试
+├── Tests/LightTransCoreTests/            # 共享工作流、网络与历史测试
+├── Tests/LightTransCLITests/             # CLI 合同测试
 ├── docs/                              # 设计文档（本目录）
 ├── CHANGELOG.md
 ├── LICENSE
@@ -55,8 +65,10 @@ lighttrans/
 ### 1.1 Package.swift 要点
 
 - swift-tools-version 5.9 及以上；`platforms: [.macOS(.v14)]`。
-- 单一可执行 target `LightTrans`。
-- 依赖：`https://github.com/sindresorhus/KeyboardShortcuts`（版本按 `from: "2.0.0"` 起解析，若与 macOS 14 部署目标冲突，按系统设计假设 A-2 的备选处理）。
+- 可执行产品 `LightTrans` 对应 App 目标；可执行产品 `lt` 对应 `LightTransCLI` 目标。
+- 库目标 `LightTransCore` 不依赖 AppKit、SwiftUI 或 KeyboardShortcuts。
+- `LightTrans` 与 `LightTransCLI` 都依赖 `LightTransCore`；只有 App 目标依赖 KeyboardShortcuts。
+- 测试按 App、Core、CLI 三个目标拆分。KeyboardShortcuts 继续按 `from: "2.0.0"` 起解析并锁定现有修订。
 
 ## 2. 配置项设计
 
@@ -369,6 +381,7 @@ README 的安装说明必须先要求核对官方 Release 来源与 SHA-256，�
 ### 10.2 设备标识与文件命名
 
 - 首次启动生成 UUID 存入 UserDefaults（键 deviceID），此后永不改变；取其前 8 位作为文件名后缀。
+- App 与多个 CLI 可能并发首次启动，因此生成前先获取本机 `device-id.lock`，重新同步并读取 UserDefaults；仍无值时才生成并立即持久化。锁内再次读取用于避免不同进程各自生成 UUID。
 - 本机历史文件名：`history-{deviceID 前 8 位}.jsonl`。本机只允许写这一个文件（铁律 L-8）。
 - 记录内另存人类可读的设备名（`Host.current().localizedName`，即"系统设置 - 通用 - 关于本机"中的电脑名称），供历史窗口显示；文件名不用设备名，避免用户改名导致双文件。
 
@@ -828,3 +841,72 @@ T17 必须先验证系统设计 A-6 至 A-11，再完成正式接入。验证范
 - FR-14 的单路翻译并复制不得在 T17 顺带实现。
 - FR-15 的原位替换必须先通过功能设计第 8.2 节全部门槛，再补充本详细设计。
 - 未经新的设计确认，不得增加 `NSReturnTypes`、Accessibility API、模拟键盘、通知权限或终端输入能力。
+
+## 15. 增量 v2.0：共享翻译核心与命令行接口
+
+本节实现 FR-16。完整类型、状态机、CLI 协议、历史锁、打包和验收规格以 `docs/10-command-line-interface-detailed-design.md` 为准；本节说明它对既有章节的覆盖关系。
+
+### 15.1 覆盖关系
+
+- 第 1.1 节的单目标结构由 App、Core、CLI 三目标结构替代。
+- 第 2 节配置键和值保持不变；键名、默认值和钥匙串坐标移入 Core，App 的 `ConfigStore` 保留 `ObservableObject` 写入能力。
+- 第 4.2、11.3 节的双路调度、取消、聚合和历史构造从 `PanelViewModel` 移入 `TranslationWorkflow`。
+- 第 6、11.2 节的 `TranslationService` 改为接收不可变配置，不再读取 `ConfigStore`。
+- 第 10、11.4 节的历史格式增加可选 `mode`；新版写 `history-v2-*.jsonl`，旧文件只读兼容。
+- 第 8 节的 App 打包增加 `Contents/Helpers/lt`、CLI 安装脚本及对应签名和架构校验。
+
+### 15.2 共享工作流
+
+唯一业务入口为：
+
+```swift
+func run(
+    request: TranslationRequest,
+    emit: @escaping @Sendable (TranslationEvent) async -> Void
+) async -> TranslationSummary
+```
+
+工作流接收 `literal`、`rewrite`、`both`；UI 固定传入 `both`，CLI 默认 `both`。请求开始时读取一次接口、模型、API Key、最大输出 Token 和两套模板，结束时读取历史开关。
+
+事件顺序固定为 `started`、若干 `chunk`、每路一个 `routeFinished`、最后一个 `finished`。`finished` 只能在历史处理完成后产生。
+
+聚合只计算已请求路由。调用方取消时，整体状态优先记为 `stopped`，即使取消前已有一路失败；该规则替代现有 `stoppedGeneration`。
+
+### 15.3 App 适配
+
+`PanelViewModel` 只把 Core 事件映射为现有两张结果卡片的状态和文本，保留外部选区的字符上限、最新请求优先及剪贴板操作。它不得直接创建 `HistoryRecord` 或调用模型服务。
+
+外部选区替换当前任务时，先取消并等待工作流返回，确认旧任务历史已经处理，再载入并启动最新文字。
+
+### 15.4 CLI 契约
+
+```bash
+lt [--mode literal|rewrite|both] [--format text|json|ndjson] [--] [TEXT...]
+```
+
+- 默认模式为 `both`，默认格式为 `text`。
+- 文本格式使用固定 `-直译-` 与 `-转写-` 标记。
+- CLI 通过标准输入或位置参数接收 UTF-8 原文，不截断、不裁剪。
+- stdout 只写结果，stderr 只写诊断。
+- `Ctrl+C` 取消全部已请求路由并等待 `stopped` 历史后返回 `130`。
+- 退出码与 JSON/NDJSON 字段以 CLI 详细设计第 11 节为准。
+
+### 15.5 进程安全历史
+
+新 App 与 CLI 使用本机锁目录中的 `flock` 协调，并以 `O_APPEND` 追加 `history-v2-{deviceID 前 8 位}.jsonl`。锁等待最长 5 秒，失败时不得无锁写入。短写和 `EINTR` 必须显式处理。
+
+首次生成 `deviceID` 使用同一锁目录中的 `device-id.lock` 串行化。该锁只保护设备标识初始化，不替代每个 v2 历史文件对应的追加锁。
+
+旧 `history-{deviceID 前 8 位}.jsonl` 不迁移、不改写、不删除。历史窗口合并读取 v1 与 v2，并按 `mode` 或旧字段推断只显示本次请求涉及的结果卡片。
+
+### 15.6 构建与发布
+
+- Release App 包含 `Contents/Helpers/lt` 和 `Contents/Resources/install-cli.sh`。
+- CLI 先单独 ad-hoc 签名，再签名 App。
+- 压缩前和 ZIP 解压后分别校验 App/CLI 签名、`arm64` 架构、版本和运行时依赖。
+- CLI 只通过安全符号链接安装，不自动修改 Shell 配置。
+- App 与 CLI 不得作为不同版本分别发布。
+
+### 15.7 编码门禁
+
+先验证系统设计 A-12 至 A-17。任一关键假设不成立时停止后续实施并更新 `docs/10-command-line-interface-detailed-design.md`，不得通过关闭 CLI 历史、命令参数传 API Key 或发布独立 CLI 规避。

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import LightTransCore
 
 // 历史记录窗口（详细设计 13.3、v5 视觉基准）
 struct HistoryWindowView: View {
@@ -219,7 +220,8 @@ struct HistoryWindowView: View {
                 HistoryDetailCard(title: "原文", icon: "text.quote", content: record.input)
                     .frame(height: 104)
 
-                if record.literalOutput != nil || record.rewriteOutput != nil {
+                switch record.effectiveMode {
+                case .both:
                     HistoryDetailCard(
                         title: "直译",
                         icon: "character.book.closed",
@@ -232,7 +234,21 @@ struct HistoryWindowView: View {
                         content: displayText(record.rewriteOutput)
                     )
                     .frame(height: 104)
-                } else {
+                case .literal:
+                    HistoryDetailCard(
+                        title: "直译",
+                        icon: "character.book.closed",
+                        content: displayText(record.literalOutput)
+                    )
+                    .frame(height: 104)
+                case .rewrite:
+                    HistoryDetailCard(
+                        title: "转写",
+                        icon: "sparkles",
+                        content: displayText(record.rewriteOutput)
+                    )
+                    .frame(height: 104)
+                case .legacy:
                     HistoryDetailCard(
                         title: "译文",
                         icon: "character.book.closed",
@@ -380,10 +396,14 @@ struct HistoryWindowView: View {
     }
 
     private func reload() {
-        let result = HistoryStore.shared.loadAll()
-        records = result.records
-        pendingDevices = result.pendingDevices
-        syncSelectionAfterFilter()
+        Task {
+            let result = await ProcessSafeHistoryStore.shared.loadAll()
+            await MainActor.run {
+                records = result.records
+                pendingDevices = result.pendingDevices
+                syncSelectionAfterFilter()
+            }
+        }
     }
 
     private func displayText(_ value: String?) -> String {

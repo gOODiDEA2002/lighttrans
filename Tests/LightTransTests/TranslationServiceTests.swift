@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import LightTrans
+import LightTransCore
 
 final class TranslationServiceTests: XCTestCase {
     override func tearDown() {
@@ -26,7 +26,16 @@ final class TranslationServiceTests: XCTestCase {
         }
 
         var output = ""
-        for try await chunk in makeService().translate(text: "source", template: "{{text}}") {
+        for try await chunk in makeService().translate(
+            text: "source",
+            template: "{{text}}",
+            configuration: .init(
+                apiBaseURL: "https://example.com/v1",
+                modelName: "test-model",
+                apiKey: "test-key",
+                maxTokens: 2000
+            )
+        ) {
             output += chunk
         }
 
@@ -42,7 +51,16 @@ final class TranslationServiceTests: XCTestCase {
         }
 
         do {
-            for try await _ in makeService().translate(text: "source", template: "{{text}}") {}
+            for try await _ in makeService().translate(
+                text: "source",
+                template: "{{text}}",
+                configuration: .init(
+                    apiBaseURL: "https://example.com/v1",
+                    modelName: "test-model",
+                    apiKey: "test-key",
+                    maxTokens: 2000
+                )
+            ) {}
             XCTFail("空流式响应不应被判定为成功")
         } catch let error as TranslationError {
             XCTAssertEqual(error, .badResponse("流式响应未包含有效内容"))
@@ -122,14 +140,7 @@ final class TranslationServiceTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         let session = URLSession(configuration: configuration)
-        return TranslationService(session: session) {
-            .init(
-                apiBaseURL: "https://example.com/v1",
-                modelName: "test-model",
-                apiKey: "test-key",
-                maxTokens: 2000
-            )
-        }
+        return TranslationService(session: session)
     }
 }
 
